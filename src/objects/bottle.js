@@ -33,6 +33,19 @@ class Bottle {
     obj.add(bottle)
   }
 
+  // 核心修复一：新增重置姿态方法
+  reset() {
+    this.status = 'stop'
+    this.direction = 'x'
+    this.flyingTime = 0
+    this.scale = 1
+    // 将倾倒的旋转角度掰正
+    this.bottle.rotation.set(0, 0, 0)
+    // 恢复因蓄力导致的形变
+    this.body.scale.set(1, 1, 1)
+    this.head.position.y = 4.5
+  }
+
   showUp() {
     CustomAnimation.to(this.obj.position, {
       x: bottleConf.initPosition.x,
@@ -46,14 +59,12 @@ class Bottle {
     this.status = 'prepare'
   }
 
-  // 接收动态的高度平面参数
   jump(pressTime, currentPlaneY, nextPlaneY, onLanding) {
     if (this.status !== 'prepare') return
     this.status = 'jump'
     this.flyingTime = 0
     this.onLanding = onLanding
     
-    // 记录跳跃相关的物理环境
     this.currentPlaneY = currentPlaneY
     this.nextPlaneY = nextPlaneY
     this.startPos = this.obj.position.clone()
@@ -65,9 +76,26 @@ class Bottle {
     CustomAnimation.to(this.head.position, { y: 4.5 }, 0.2)
   }
 
-  fall() {
+  fall(fallType) {
     this.status = 'fall'
-    CustomAnimation.to(this.obj.position, { y: this.obj.position.y - 20 }, 0.5)
+    
+    if (fallType === 'tiltForward') {
+      const axis = this.direction === 'x' ? 'z' : 'x'
+      const angle = -Math.PI / 2 
+      CustomAnimation.to(this.bottle.rotation, { [axis]: angle }, 0.2)
+      setTimeout(() => {
+        CustomAnimation.to(this.obj.position, { y: this.obj.position.y - 20 }, 0.4)
+      }, 150)
+    } else if (fallType === 'tiltBackward') {
+      const axis = this.direction === 'x' ? 'z' : 'x'
+      const angle = Math.PI / 2 
+      CustomAnimation.to(this.bottle.rotation, { [axis]: angle }, 0.2)
+      setTimeout(() => {
+        CustomAnimation.to(this.obj.position, { y: this.obj.position.y - 20 }, 0.4)
+      }, 150)
+    } else {
+      CustomAnimation.to(this.obj.position, { y: this.obj.position.y - 20 }, 0.4)
+    }
   }
 
   update() {
@@ -83,7 +111,6 @@ class Bottle {
       const t = this.flyingTime
       const g = 0.12 
       
-      // y轴不再是固定的，而是基于起跳点的 y 加上抛物线位移
       this.obj.position.y = this.startPos.y + (this.velocity.vy * t - 0.5 * g * t * t)
       
       if (this.direction === 'x') {
@@ -94,18 +121,16 @@ class Bottle {
         this.bottle.rotation.x -= 0.12
       }
 
-      // 智能判断落点平面：根据飞行的水平距离，判断我们是该砸向原有的箱子，还是新生成的箱子
       const distanceMoved = (this.direction === 'x') ? 
         Math.abs(this.obj.position.x - this.startPos.x) : 
         Math.abs(this.obj.position.z - this.startPos.z)
       
       const targetY = (distanceMoved < 4) ? this.currentPlaneY : this.nextPlaneY
-      const currentVelocityY = this.velocity.vy - g * t // 当前垂直瞬时速度
+      const currentVelocityY = this.velocity.vy - g * t 
 
-      // 只有在下落阶段 (速度 < 0)，且穿过了目标平面时，才算真正落地
       if (currentVelocityY < 0 && this.obj.position.y <= targetY) {
         this.status = 'stop'
-        this.obj.position.y = targetY // 严格贴合物理表面
+        this.obj.position.y = targetY 
         this.bottle.rotation.set(0, 0, 0)
         this.body.scale.set(1, 1, 1)
         

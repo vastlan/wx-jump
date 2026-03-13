@@ -8,8 +8,9 @@ import gameModel from '../game/model'
 import audioManager from '../utils/audio-manager'
 import scoreText from '../objects/score-text'
 import wave from '../objects/wave'
-// 核心修复：更正配置文件的相对路径，往上跳两层跳出 src 目录
 import blockConf from '../../confs/block-conf'
+import scoreText3d from '../objects/score-text-3d'
+import { CustomAnimation } from '../../libs/animation' 
 
 export default class GamePage {
   constructor(callbacks) {
@@ -49,8 +50,9 @@ export default class GamePage {
     })
     this.blocks = []
 
+    // 初始前两个方块永远是简单平地，方便玩家找回手感
     const initWidth = 12
-    const initDistance = initWidth + 2 + Math.random() * 6
+    const initDistance = initWidth + 2 + Math.random() * 4
     const cylinderBlock = new Cuboid(-15, 0, 0, 'default', initWidth)
     const cuboidBlock = new Cylinder(-15 + initDistance, 0, 0, 'default', initWidth)
     this.scene.instance.add(cylinderBlock.instance)
@@ -58,9 +60,8 @@ export default class GamePage {
     this.blocks.push(cylinderBlock)
     this.blocks.push(cuboidBlock)
     
+    this.bottle.reset() 
     this.bottle.obj.position.set(-15, 0, 0)
-    this.bottle.direction = 'x'
-    this.bottle.status = 'stop'
     this.bottle.showUp()
 
     this.scene.instance.add(ground.instance)
@@ -85,7 +86,6 @@ export default class GamePage {
       
       const currentBlock = this.blocks[this.blocks.length - 2]
       const nextBlock = this.blocks[this.blocks.length - 1]
-      // 这里用到了正确引入的 blockConf
       const currentY = currentBlock.instance.position.y + blockConf.height / 2
       const nextY = nextBlock.instance.position.y + blockConf.height / 2
 
@@ -119,6 +119,7 @@ export default class GamePage {
       const comboName = `combo${Math.min(gameModel.combo, 8)}`
       audioManager.play(comboName)
       wave.createWave(this.scene.instance, nextBlock.instance.position)
+      scoreText3d.showScore(this.scene.instance, addScore, nextBlock.instance.position)
       this.successJump(nextBlock)
     } else if (distanceToNext < NEXT_RADIUS) {
       gameModel.combo = 0
@@ -132,7 +133,19 @@ export default class GamePage {
     } else {
       this.isGameOver = true
       audioManager.play('fall') 
-      this.bottle.fall() 
+      
+      let fallType = 'straight'
+      if (distanceToNext >= NEXT_RADIUS && distanceToNext < NEXT_RADIUS + 1.5) {
+        if (this.bottle.direction === 'x') {
+          fallType = dx < 0 ? 'tiltBackward' : 'tiltForward'
+        } else {
+          fallType = dz > 0 ? 'tiltBackward' : 'tiltForward'
+        }
+      } else if (distanceToCurr >= CURR_RADIUS && distanceToCurr < CURR_RADIUS + 1.5) {
+        fallType = 'tiltForward'
+      }
+
+      this.bottle.fall(fallType) 
       setTimeout(() => {
         if (this.callbacks && this.callbacks.showGameOverPage) {
           this.callbacks.showGameOverPage()
@@ -165,6 +178,7 @@ export default class GamePage {
         gameModel.addScore(bonusScore)
         audioManager.play(audioName)
         wave.createWave(this.scene.instance, block.instance.position)
+        scoreText3d.showScore(this.scene.instance, bonusScore, block.instance.position) 
       }, 2000) 
     }
   }
@@ -178,20 +192,49 @@ export default class GamePage {
 
   generateNextBlock() {
     const lastBlock = this.blocks[this.blocks.length - 1]
-    
     const score = gameModel.score
-    const difficulty = Math.min(score / 40, 1.0) 
+    
+    // ========================================================
+    // 核心改造：加权随机难度系统 (Weighted Random Difficulty)
+    // ========================================================
+    
+    // progress 反映了游戏进度阶段 (0 到 50 分之间平滑增长，50分满进度)
+    const progress = Math.min(score / 50, 1.0) 
+    
+    // 动态概率：开局就有 15% 的概率遇到高难，满分时达到 80% 概率遇到高难
+    const hardProbability = 0.15 + progress * 0.65 
+    
+    let jumpDifficulty = 0 // 难度系数： 0.0(最简单) ~ 1.0(最极变态)
+    
+    // 抽卡环节：根据当前的概率，决定接下来的这个方块难度落入哪个区间
+    if (Math.random() < hardProbability) {
+      // 抽中高难度：随机 0.5 ~ 1.0 之间的极限属性
+      jumpDifficulty = 0.5 + Math.random() * 0.5
+    } else {
+      // 抽中低难度（喘息时刻）：随机 0.0 ~ 0.5 之间的简单属性
+      jumpDifficulty = Math.random() * 0.5
+    }
 
-    const minWidth = 10 - (difficulty * 5) 
-    const maxWidth = 13 - (difficulty * 3) 
-    const nextWidth = minWidth + Math.random() * (maxWidth - minWidth)
+    // 难度映射 1：方块宽度
+    // jumpDifficulty 为 0 时宽 13(巨大)，为 1.0 时宽 5(极限小)
+    const nextWidth = 13 - (jumpDifficulty * 8)
 
+    // 难度映射 2：方块距离
     const minDistance = (lastBlock.width + nextWidth) / 2 + 2
-    const maxDistance = minDistance + 6 + (difficulty * 10) 
-    const distance = minDistance + Math.random() * (maxDistance - minDistance)
+    // 困难度越高，额外增加的距离越远，最大增加 11 个单位，确保绝对不会超出屏幕视野
+    const distance = minDistance + (jumpDifficulty * 11)
 
-    const heightDiff = (Math.random() - 0.5) * (difficulty * 10)
-    const newY = lastBlock.instance.position.y + heightDiff
+    // 难度映射 3：高度落差
+    let heightDiff = 0
+    // 只有当难度系数抽中中等偏上(> 0.3)时，才会有高度变化
+    if (jumpDifficulty > 0.3) {
+      const heightSign = Math.random() > 0.5 ? 1 : -1
+      // 最大落差随着难度提高而增大，最高可达正负 8 个单位
+      heightDiff = heightSign * (Math.random() * jumpDifficulty * 8)
+    }
+    const targetY = lastBlock.instance.position.y + heightDiff 
+
+    // ========================================================
 
     const isXDirection = Math.random() > 0.5 
     let newX = lastBlock.instance.position.x
@@ -211,15 +254,18 @@ export default class GamePage {
     if (isCuboid) {
       const skins = ['default', 'default', 'store', 'express', 'dict', 'door', 'medicine', 'money', 'clock', 'gift', 'indoor', 'well']
       const randomSkin = skins[Math.floor(Math.random() * skins.length)]
-      newBlock = new Cuboid(newX, newY, newZ, randomSkin, nextWidth)
+      newBlock = new Cuboid(newX, targetY, newZ, randomSkin, nextWidth)
     } else {
       const skins = ['default', 'default', 'disk', 'disk_light', 'disk_dark', 'golf', 'paper']
       const randomSkin = skins[Math.floor(Math.random() * skins.length)]
-      newBlock = new Cylinder(newX, newY, newZ, randomSkin, nextWidth)
+      newBlock = new Cylinder(newX, targetY, newZ, randomSkin, nextWidth)
     }
 
+    newBlock.instance.position.y = targetY + 15
     this.scene.instance.add(newBlock.instance)
     this.blocks.push(newBlock)
+
+    CustomAnimation.to(newBlock.instance.position, { y: targetY }, 0.25)
 
     if (this.blocks.length > 5) {
       const oldBlock = this.blocks.shift()
@@ -233,7 +279,7 @@ export default class GamePage {
 
     const targetPosition = new THREE.Vector3(
       (lastBlock.instance.position.x + currentBlock.instance.position.x) / 2,
-      (lastBlock.instance.position.y + currentBlock.instance.position.y) / 2,
+      ((lastBlock.instance.position.y - 15) + currentBlock.instance.position.y) / 2,
       (lastBlock.instance.position.z + currentBlock.instance.position.z) / 2
     )
     camera.updatePosition(targetPosition)

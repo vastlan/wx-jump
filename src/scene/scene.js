@@ -1,6 +1,7 @@
-import camera from './camera'
-import light from './light'
-import background from '../objects/background'
+// src/scene/scene.js
+import camera from './camera.js'
+import light from './light.js'
+import background from '../objects/background.js'
 
 class Scene {
   constructor() {
@@ -11,8 +12,7 @@ class Scene {
     const instance = this.instance = new THREE.Scene()
     const renderer = this.renderer = new THREE.WebGLRenderer({
       canvas: canvas,
-      // 开启抗锯齿
-      antilias: true,
+      antialias: true,
       preserveDrawingBuffer: true
     })
 
@@ -24,9 +24,10 @@ class Scene {
     this.camera.init()
     this.light.init()
 
-    this.axesHelper = new THREE.AxesHelper(100)
+    // 升级四：移除测试用的 AxesHelper，让画面彻底干净
+    // this.axesHelper = new THREE.AxesHelper(100)
+    // instance.add(this.axesHelper)
 
-    instance.add(this.axesHelper)
     instance.add(this.camera.instance)
     for (let lightType in this.light.instances) {
       instance.add(this.light.instances[lightType])

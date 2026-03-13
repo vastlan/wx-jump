@@ -5,13 +5,14 @@ export default class GameOverPage {
   constructor(callbacks) {
     this.callbacks = callbacks
     this.isVisible = false
+    this.hasBoundTouch = false // 防止事件重复绑定
   }
 
   init(options) {
     this.scene = options.scene
     
-    // 使用 Canvas 绘制一张带半透明遮罩的 GameOver 贴图
-    this.canvas = document.createElement('canvas')
+    // 核心修复：兼容微信小游戏环境与浏览器测试环境的 Canvas 创建
+    this.canvas = typeof wx !== 'undefined' ? wx.createCanvas() : document.createElement('canvas')
     this.canvas.width = 512
     this.canvas.height = 512
     this.ctx = this.canvas.getContext('2d')
@@ -20,8 +21,8 @@ export default class GameOverPage {
     const material = new THREE.SpriteMaterial({ map: this.texture, depthTest: false })
     this.instance = new THREE.Sprite(material)
     this.instance.scale.set(30, 30, 1)
-    this.instance.position.set(0, 0, -10) // 放在相机正前方居中
-    this.instance.renderOrder = 200     // 层级最高，遮挡一切
+    this.instance.position.set(0, 0, -10) 
+    this.instance.renderOrder = 200     
     this.instance.visible = false
     
     camera.instance.add(this.instance)
@@ -31,11 +32,10 @@ export default class GameOverPage {
 
   draw() {
     this.ctx.clearRect(0, 0, 512, 512)
-    // 半透明黑底遮罩
+    
     this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
     this.ctx.fillRect(0, 0, 512, 512)
     
-    // 绘制文案
     this.ctx.fillStyle = '#ffffff'
     this.ctx.font = 'bold 60px Arial'
     this.ctx.textAlign = 'center'
@@ -48,23 +48,36 @@ export default class GameOverPage {
   }
 
   bindTouchEvent() {
-    wx.onTouchEnd(() => {
-      // 只有在结算页面显示时，点击屏幕才会触发重开
+    if (this.hasBoundTouch) return
+    this.hasBoundTouch = true
+
+    const handleRestart = () => {
       if (this.isVisible) {
+        console.log('GameOverPage: 触发重新开始')
         if (this.callbacks && this.callbacks.gameRestart) {
           this.callbacks.gameRestart()
         }
       }
-    })
+    }
+
+    // 核心修复：多环境触摸事件绑定，确保结算页面的点击能被准确拦截
+    if (typeof wx !== 'undefined') {
+      wx.onTouchEnd(handleRestart)
+    } else {
+      window.addEventListener('touchend', handleRestart)
+      window.addEventListener('mouseup', handleRestart) // 兼容电脑端鼠标点击
+    }
   }
 
   show() {
+    console.log('GameOverPage: 显示结算界面')
     this.isVisible = true
     this.draw()
     this.instance.visible = true
   }
 
   hide() {
+    console.log('GameOverPage: 隐藏结算界面')
     this.isVisible = false
     this.instance.visible = false
   }

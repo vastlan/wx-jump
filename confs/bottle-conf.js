@@ -1,7 +1,11 @@
+// confs/bottle-conf.js
 export default {
   initPosition: { x: -15, y: 0, z: 0 },
-  headRadius: 0.9,  // 缩小棋子头部 (原为2.1)
+  headRadius: 0.9,
   bodyWidth: 1.8,
   bodyHeight: 3.5,
-  jumpC: 0.012      // 蓄力系数精调：支持微跳的关键
+  // 核心修复：极大幅度降低跳跃系数。
+  // 原本隐藏在代码里的系数太高。现在设为 0.0018，
+  // 意味着你轻点屏幕（十几毫秒），小人只会往前挪动一点点。
+  jumpC: 0.0018 
 }

@@ -1,17 +1,17 @@
 // src/pages/game-over-page.js
 import { camera } from '../scene/index'
+import gameModel from '../game/model' // 引入 model 以获取分数
 
 export default class GameOverPage {
   constructor(callbacks) {
     this.callbacks = callbacks
     this.isVisible = false
-    this.hasBoundTouch = false // 防止事件重复绑定
+    this.hasBoundTouch = false 
   }
 
   init(options) {
     this.scene = options.scene
     
-    // 核心修复：兼容微信小游戏环境与浏览器测试环境的 Canvas 创建
     this.canvas = typeof wx !== 'undefined' ? wx.createCanvas() : document.createElement('canvas')
     this.canvas.width = 512
     this.canvas.height = 512
@@ -32,17 +32,21 @@ export default class GameOverPage {
 
   draw() {
     this.ctx.clearRect(0, 0, 512, 512)
-    
     this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
     this.ctx.fillRect(0, 0, 512, 512)
     
     this.ctx.fillStyle = '#ffffff'
     this.ctx.font = 'bold 60px Arial'
     this.ctx.textAlign = 'center'
-    this.ctx.fillText('游戏结束', 256, 180)
+    this.ctx.fillText('游戏结束', 256, 150)
+    
+    // 核心升级：死亡结算展示本次得分与历史最高分
+    this.ctx.font = '35px Arial'
+    this.ctx.fillText(`本次得分: ${gameModel.score}`, 256, 230)
+    this.ctx.fillText(`历史最高: ${gameModel.highestScore}`, 256, 280)
     
     this.ctx.font = '40px Arial'
-    this.ctx.fillText('点击屏幕重新开始', 256, 300)
+    this.ctx.fillText('点击屏幕重新开始', 256, 380)
     
     this.texture.needsUpdate = true
   }
@@ -53,31 +57,27 @@ export default class GameOverPage {
 
     const handleRestart = () => {
       if (this.isVisible) {
-        console.log('GameOverPage: 触发重新开始')
         if (this.callbacks && this.callbacks.gameRestart) {
           this.callbacks.gameRestart()
         }
       }
     }
 
-    // 核心修复：多环境触摸事件绑定，确保结算页面的点击能被准确拦截
     if (typeof wx !== 'undefined') {
       wx.onTouchEnd(handleRestart)
     } else {
       window.addEventListener('touchend', handleRestart)
-      window.addEventListener('mouseup', handleRestart) // 兼容电脑端鼠标点击
+      window.addEventListener('mouseup', handleRestart) 
     }
   }
 
   show() {
-    console.log('GameOverPage: 显示结算界面')
     this.isVisible = true
     this.draw()
     this.instance.visible = true
   }
 
   hide() {
-    console.log('GameOverPage: 隐藏结算界面')
     this.isVisible = false
     this.instance.visible = false
   }

@@ -11,7 +11,7 @@ class Scene {
   init() {
     const instance = this.instance = new THREE.Scene()
     const renderer = this.renderer = new THREE.WebGLRenderer({
-      canvas: canvas,
+      canvas: typeof wx !== 'undefined' ? canvas : document.createElement('canvas'),
       antialias: true,
       preserveDrawingBuffer: true
     })
@@ -23,10 +23,6 @@ class Scene {
     this.light = light
     this.camera.init()
     this.light.init()
-
-    // 升级四：移除测试用的 AxesHelper，让画面彻底干净
-    // this.axesHelper = new THREE.AxesHelper(100)
-    // instance.add(this.axesHelper)
 
     instance.add(this.camera.instance)
     for (let lightType in this.light.instances) {
@@ -40,6 +36,10 @@ class Scene {
   }
 
   render() {
+    // 驱动背景颜色的平滑渐变
+    if (this.background) {
+      this.background.update()
+    }
     this.renderer.render(this.instance, this.camera.instance)
   }
 }

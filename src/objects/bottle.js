@@ -2,6 +2,8 @@
 import { CustomAnimation } from '../../libs/animation'
 import bottleConf from '../../confs/bottle-conf'
 import blockConf from '../../confs/block-conf'
+import { scene } from '../scene/index' // 引入场景以便挂载残影
+import tail from './tail' // 引入残影特效模块
 
 class Bottle {
   constructor() {
@@ -33,15 +35,12 @@ class Bottle {
     obj.add(bottle)
   }
 
-  // 核心修复一：新增重置姿态方法
   reset() {
     this.status = 'stop'
     this.direction = 'x'
     this.flyingTime = 0
     this.scale = 1
-    // 将倾倒的旋转角度掰正
     this.bottle.rotation.set(0, 0, 0)
-    // 恢复因蓄力导致的形变
     this.body.scale.set(1, 1, 1)
     this.head.position.y = 4.5
   }
@@ -119,6 +118,11 @@ class Bottle {
       } else {
         this.obj.position.z -= this.velocity.vx
         this.bottle.rotation.x -= 0.12
+      }
+
+      // 核心特效注入：飞行状态下，每隔 2 帧在当前位置生成一个尾迹残影
+      if (this.flyingTime % 2 === 0) {
+        tail.createTail(scene.instance, this.obj.position, this.bottle.rotation)
       }
 
       const distanceMoved = (this.direction === 'x') ? 

@@ -6,7 +6,6 @@ export default class Cylinder extends BaseBlock {
   constructor(x, y, z, skin = 'default', customWidth) {
     super('cylinder')
     this.skin = skin
-    
     const width = customWidth || blockConf.width
     this.width = width
     const height = blockConf.height
@@ -15,10 +14,14 @@ export default class Cylinder extends BaseBlock {
     const geometry = new THREE.CylinderGeometry(radius, radius, height, 32)
     const loader = new THREE.TextureLoader()
 
-    let topTexture, sideTexture, bottomTexture;
-    let material;
+    let topTexture, sideTexture
+    let material
 
-    if (skin === 'disk') {
+    // 核心回归：照片中的圆柱底座是非常干净的浅灰色
+    if (skin === 'default') {
+      material = new THREE.MeshLambertMaterial({ color: 0xEAEAEA })
+      this.instance = new THREE.Mesh(geometry, material)
+    } else if (skin === 'disk') {
       topTexture = loader.load('res/images/disk.png')
       sideTexture = loader.load('res/images/gray.png') 
     } else if (skin === 'disk_light') {
@@ -41,11 +44,6 @@ export default class Cylinder extends BaseBlock {
       const bottomMat = new THREE.MeshLambertMaterial({ color: 0xffffff })
       const materials = [ sideMat, topMat, bottomMat ]
       this.instance = new THREE.Mesh(geometry, materials)
-    } else {
-      const colors = [0x8B4513, 0xD2B48C, 0xDEB887, 0xA0522D, 0xCD853F, 0xF4A460] 
-      const randomColor = colors[Math.floor(Math.random() * colors.length)]
-      material = new THREE.MeshLambertMaterial({ color: randomColor })
-      this.instance = new THREE.Mesh(geometry, material)
     }
 
     this.instance.position.set(x, y, z)

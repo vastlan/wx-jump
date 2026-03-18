@@ -22,6 +22,7 @@ export default class GamePage {
     this.bonusTimer = null 
     this.chargeAudioTimer = null 
     this.stepCount = 0
+    this.isSliding = false 
   }
 
   init() {
@@ -46,6 +47,7 @@ export default class GamePage {
     this.clearBonusTimer() 
     gameModel.resetScore() 
     this.stepCount = 0 
+    this.isSliding = false
 
     this.blocks.forEach(block => {
       this.scene.instance.remove(block.instance)
@@ -76,7 +78,7 @@ export default class GamePage {
 
   bindTouchEvent() {
     wx.onTouchStart(() => {
-      if (gameModel.getStage() !== 'game-page' || this.isGameOver) return 
+      if (gameModel.getStage() !== 'game-page' || this.isGameOver || this.isSliding) return 
       this.clearBonusTimer() 
       this.touchStartTime = Date.now()
       
@@ -84,7 +86,6 @@ export default class GamePage {
       const currentBlock = this.blocks[this.blocks.length - 2]
       const currentY = currentBlock.instance.position.y + blockConf.height / 2
       
-      // 【基准弹道锁定】：准备阶段永远朝向轨道的物理绝对中心线，不会随着方块左右摇摆
       const targetPos = new THREE.Vector3(
         nextBlock.baseX !== undefined ? nextBlock.baseX : nextBlock.instance.position.x,
         nextBlock.instance.position.y,
@@ -98,7 +99,7 @@ export default class GamePage {
     })
 
     wx.onTouchEnd(() => {
-      if (gameModel.getStage() !== 'game-page' || this.isGameOver) return
+      if (gameModel.getStage() !== 'game-page' || this.isGameOver || this.isSliding) return
       
       if (this.chargeAudioTimer) { clearInterval(this.chargeAudioTimer); this.chargeAudioTimer = null }
       audioManager.stop('scale_intro') 
@@ -111,7 +112,6 @@ export default class GamePage {
       const currentY = currentBlock.instance.position.y + blockConf.height / 2
       const nextY = nextBlock.instance.position.y + blockConf.height / 2
 
-      // 【基准弹道锁定】：起跳轨迹强制沿 X 轴或 Z 轴直线飞行，强迫玩家预判方块滑动时机
       const targetPos = new THREE.Vector3(
         nextBlock.baseX !== undefined ? nextBlock.baseX : nextBlock.instance.position.x,
         nextBlock.instance.position.y,
@@ -124,52 +124,107 @@ export default class GamePage {
     })
   }
 
+  _checkStrictHit(block, dx, dz) {
+    const margin = 0.5 
+    if (block.type === 'cuboid') return Math.abs(dx) <= (block.width / 2 + margin) && Math.abs(dz) <= (block.width / 2 + margin)
+    else return Math.sqrt(dx * dx + dz * dz) <= (block.width / 2 + margin)
+  }
+
   checkCollision(isMicroStep = false) {
     const currentBlock = this.blocks[this.blocks.length - 2]
     const nextBlock = this.blocks[this.blocks.length - 1]
     const bottlePos = this.bottle.obj.position
 
-    const dxNext = bottlePos.x - nextBlock.instance.position.x
-    const dzNext = bottlePos.z - nextBlock.instance.position.z
-    const dxCurr = bottlePos.x - currentBlock.instance.position.x
-    const dzCurr = bottlePos.z - currentBlock.instance.position.z
+    const nextX = nextBlock.instance.position.x;
+    const nextZ = nextBlock.instance.position.z;
+    const currX = currentBlock.instance.position.x;
+    const currZ = currentBlock.instance.position.z;
 
-    const checkStrictHit = (block, dx, dz) => {
-      const margin = 0.5 
-      if (block.type === 'cuboid') return Math.abs(dx) <= (block.width / 2 + margin) && Math.abs(dz) <= (block.width / 2 + margin)
-      else return Math.sqrt(dx * dx + dz * dz) <= (block.width / 2 + margin)
-    }
+    const dxNext = bottlePos.x - nextX
+    const dzNext = bottlePos.z - nextZ
+    const dxCurr = bottlePos.x - currX
+    const dzCurr = bottlePos.z - currZ
 
-    const hitNext = checkStrictHit(nextBlock, dxNext, dzNext)
-    const hitCurr = checkStrictHit(currentBlock, dxCurr, dzCurr)
+    const hitNext = this._checkStrictHit(nextBlock, dxNext, dzNext)
+    const hitCurr = this._checkStrictHit(currentBlock, dxCurr, dzCurr)
     const distanceToNextCenter = Math.sqrt(dxNext * dxNext + dzNext * dzNext)
     const CENTER_RADIUS = Math.min(2.5, nextBlock.width / 3.5)
 
     if (hitNext) {
       if (isMicroStep) return;
 
-      const blockDistance = Math.sqrt(
-        Math.pow((nextBlock.baseX || nextBlock.instance.position.x) - (currentBlock.baseX || currentBlock.instance.position.x), 2) + 
-        Math.pow((nextBlock.baseZ || nextBlock.instance.position.z) - (currentBlock.baseZ || currentBlock.instance.position.z), 2)
-      )
-      let baseScore = Math.max(1, Math.floor(blockDistance / 5)) 
-      let finalScore = baseScore
+      if (nextBlock.isIce && distanceToNextCenter >= CENTER_RADIUS) {
+        this.isSliding = true;
+        
+        const dxTotal = (nextBlock.baseX !== undefined ? nextBlock.baseX : nextBlock.instance.position.x) - (currentBlock.baseX !== undefined ? currentBlock.baseX : currentBlock.instance.position.x);
+        const dzTotal = (nextBlock.baseZ !== undefined ? nextBlock.baseZ : nextBlock.instance.position.z) - (currentBlock.baseZ !== undefined ? currentBlock.baseZ : currentBlock.instance.position.z);
+        const distTotal = Math.sqrt(dxTotal * dxTotal + dzTotal * dzTotal);
+        const dirX = dxTotal / distTotal;
+        const dirZ = dzTotal / distTotal;
 
-      if (distanceToNextCenter < CENTER_RADIUS) {
-        finalScore = baseScore * 2
-        gameModel.combo += 1
-        const comboName = `combo${Math.min(gameModel.combo, 8)}`
-        audioManager.play(comboName)
-        wave.createWave(this.scene.instance, nextBlock.instance.position)
-      } else {
-        gameModel.combo = 0
-        audioManager.play('success') 
+        const maxSlideDist = 3.5; 
+        let actualSlideDist = maxSlideDist;
+        let willFall = false;
+
+        let distToEdge = 999;
+        const margin = 0.5;
+
+        if (Math.abs(dirX) > Math.abs(dirZ)) {
+            const edgeX = nextBlock.instance.position.x + Math.sign(dirX) * (nextBlock.width / 2 + margin);
+            distToEdge = Math.abs(edgeX - bottlePos.x);
+        } else {
+            const edgeZ = nextBlock.instance.position.z + Math.sign(dirZ) * (nextBlock.width / 2 + margin);
+            distToEdge = Math.abs(edgeZ - bottlePos.z);
+        }
+
+        if (distToEdge < maxSlideDist) {
+            willFall = true;
+            actualSlideDist = distToEdge + 0.2; 
+        }
+
+        // ==========================================
+        // ✨【滑动追踪优化】：动画采用相对增量计算
+        // 允许火柴人在打滑期间依然完美吸附在移动的方块上！
+        // ==========================================
+        const slideDuration = (actualSlideDist / maxSlideDist) * 0.3; 
+        const sX = dirX * actualSlideDist;
+        const sZ = dirZ * actualSlideDist;
+        
+        let slideProgress = { p: 0 };
+        const startX = this.bottle.obj.position.x;
+        const startZ = this.bottle.obj.position.z;
+
+        audioManager.play('water'); 
+
+        // 不直接修改坐标，而是缓动进度，由 update() 自己结合增量计算
+        CustomAnimation.to(slideProgress, { p: 1 }, slideDuration);
+
+        // 利用 requestAnimationFrame 在每一帧叠加相对滑动偏移
+        const slideLoop = () => {
+            if (!this.isSliding) return;
+            const currentP = slideProgress.p;
+            // 获取方块底盘实时的绝对坐标，加上相对的滑行距离
+            this.bottle.obj.position.x = nextBlock.instance.position.x + dxNext + (sX * currentP);
+            this.bottle.obj.position.z = nextBlock.instance.position.z + dzNext + (sZ * currentP);
+            requestAnimationFrame(slideLoop);
+        };
+        slideLoop();
+
+        setTimeout(() => {
+            this.isSliding = false;
+            if (willFall) {
+                const finalDx = this.bottle.obj.position.x - nextBlock.instance.position.x;
+                const finalDz = this.bottle.obj.position.z - nextBlock.instance.position.z;
+                this.handleFall(currentBlock, nextBlock, finalDx, finalDz, false, false, distanceToNextCenter);
+            } else {
+                this.handleHitNext(currentBlock, nextBlock, distanceToNextCenter, CENTER_RADIUS, true);
+            }
+        }, slideDuration * 1000);
+
+        return; 
       }
 
-      gameModel.addScore(finalScore)
-      scoreText3d.showScore(this.scene.instance, finalScore, nextBlock.instance.position)
-      particle.createDust(this.scene.instance, this.bottle.obj.position)
-      this.successJump(nextBlock)
+      this.handleHitNext(currentBlock, nextBlock, distanceToNextCenter, CENTER_RADIUS, false);
 
     } else if (hitCurr) {
       if (isMicroStep) return; 
@@ -179,21 +234,55 @@ export default class GamePage {
       particle.createDust(this.scene.instance, this.bottle.obj.position)
       this.startBonusTimer(currentBlock) 
     } else {
-      this.isGameOver = true
-      audioManager.play('fall') 
-      gameModel.saveHighestScore()
-
-      let fallType = 'straight'
-      if (!hitNext && distanceToNextCenter < nextBlock.width / 2 + 2.5) {
-        if (this.bottle.direction === 'x') fallType = dxNext < 0 ? 'tiltBackward' : 'tiltForward'
-        else fallType = dzNext > 0 ? 'tiltBackward' : 'tiltForward'
-      } else if (!hitCurr && Math.sqrt(dxCurr * dxCurr + dzCurr * dzCurr) < currentBlock.width / 2 + 2.5) {
-        fallType = 'tiltForward'
-      }
-
-      this.bottle.fall(fallType) 
-      setTimeout(() => { if (this.callbacks && this.callbacks.showGameOverPage) this.callbacks.showGameOverPage() }, 1500)
+      this.handleFall(currentBlock, nextBlock, dxNext, dzNext, hitNext, hitCurr, distanceToNextCenter);
     }
+  }
+
+  handleHitNext(currentBlock, nextBlock, distanceToNextCenter, CENTER_RADIUS, wasSliding) {
+    const blockDistance = Math.sqrt(
+      Math.pow((nextBlock.baseX !== undefined ? nextBlock.baseX : nextBlock.instance.position.x) - 
+               (currentBlock.baseX !== undefined ? currentBlock.baseX : currentBlock.instance.position.x), 2) + 
+      Math.pow((nextBlock.baseZ !== undefined ? nextBlock.baseZ : nextBlock.instance.position.z) - 
+               (currentBlock.baseZ !== undefined ? currentBlock.baseZ : currentBlock.instance.position.z), 2)
+    )
+    let baseScore = Math.max(1, Math.floor(blockDistance / 5)) 
+    let finalScore = baseScore
+
+    if (!wasSliding && distanceToNextCenter < CENTER_RADIUS) {
+      finalScore = baseScore * 2
+      gameModel.combo += 1
+      const comboName = `combo${Math.min(gameModel.combo, 8)}`
+      audioManager.play(comboName)
+      wave.createWave(this.scene.instance, nextBlock.instance.position)
+    } else {
+      gameModel.combo = 0
+      audioManager.play('success') 
+    }
+
+    gameModel.addScore(finalScore)
+    scoreText3d.showScore(this.scene.instance, finalScore, nextBlock.instance.position)
+    particle.createDust(this.scene.instance, this.bottle.obj.position)
+    this.successJump(nextBlock)
+  }
+
+  handleFall(currentBlock, nextBlock, dxNext, dzNext, hitNext, hitCurr, distanceToNextCenter) {
+    this.isGameOver = true
+    audioManager.play('fall') 
+    gameModel.saveHighestScore()
+
+    const dxCurr = this.bottle.obj.position.x - currentBlock.instance.position.x;
+    const dzCurr = this.bottle.obj.position.z - currentBlock.instance.position.z;
+
+    let fallType = 'straight'
+    if (!hitNext && distanceToNextCenter < nextBlock.width / 2 + 2.5) {
+      if (this.bottle.direction === 'x') fallType = dxNext < 0 ? 'tiltBackward' : 'tiltForward'
+      else fallType = dzNext > 0 ? 'tiltBackward' : 'tiltForward'
+    } else if (!hitCurr && Math.sqrt(dxCurr * dxCurr + dzCurr * dzCurr) < currentBlock.width / 2 + 2.5) {
+      fallType = 'tiltForward'
+    }
+
+    this.bottle.fall(fallType) 
+    setTimeout(() => { if (this.callbacks && this.callbacks.showGameOverPage) this.callbacks.showGameOverPage() }, 1500)
   }
 
   successJump(landedBlock) {
@@ -207,7 +296,7 @@ export default class GamePage {
     this.clearBonusTimer()
     let bonusScore = 0
     if (block.skin === 'store') bonusScore = 15;
-    else if (block.skin.includes('disk')) bonusScore = 30;
+    else if (block.skin && block.skin.includes('disk')) bonusScore = 30;
 
     if (bonusScore > 0) {
       this.bonusTimer = setTimeout(() => {
@@ -255,7 +344,6 @@ export default class GamePage {
     const targetY = 0 
     const isXDirection = Math.random() > 0.5 
     
-    // 使用基准坐标进行衍生，防止累积滑动误差
     let newX = lastBlock.baseX !== undefined ? lastBlock.baseX : lastBlock.instance.position.x;
     let newZ = lastBlock.baseZ !== undefined ? lastBlock.baseZ : lastBlock.instance.position.z;
   
@@ -279,14 +367,73 @@ export default class GamePage {
     newBlock.baseX = newX;
     newBlock.baseZ = newZ;
     
-    // 概率生成动态移动的方块
-    if (this.stepCount > 8 && Math.random() < 0.25) {
+    // ==========================================
+    // ✨【A路线终极阶梯】：控制组合出现的概率
+    // 阶梯 1: 纯移动 (>8)
+    // 阶梯 2: 纯冰块 (>15)
+    // 阶梯 3: 终极冰块 + 移动 (>20)
+    // ==========================================
+    let isMoving = false;
+    let isIce = false;
+
+    const rand = Math.random();
+
+    if (this.stepCount > 20) {
+        // 第 3 阶段：动感冰块登场！
+        if (rand < 0.20) {
+            isMoving = true;
+            isIce = true;
+        } else if (rand < 0.40) {
+            isIce = true;
+        } else if (rand < 0.65) {
+            isMoving = true;
+        }
+    } else if (this.stepCount > 15) {
+        // 第 2 阶段：纯冰块
+        if (rand < 0.20) {
+            isIce = true;
+        } else if (rand < 0.45) {
+            isMoving = true;
+        }
+    } else if (this.stepCount > 8) {
+        // 第 1 阶段：仅移动方块
+        if (rand < 0.25) {
+            isMoving = true;
+        }
+    }
+
+    if (isMoving) {
         newBlock.isMoving = true;
         newBlock.moveAxis = isXDirection ? 'z' : 'x'; 
-        const speedMultiplier = Math.min(1 + (this.stepCount - 8) / 40, 2.5);
+        const speedMultiplier = Math.min(1 + (this.stepCount - 8) / 40, 3.0); // 终极速度上限
         newBlock.moveSpeed = (0.0015 + Math.random() * 0.001) * speedMultiplier;
         newBlock.moveRange = 5 + Math.random() * 4;
         newBlock.moveOffset = Math.random() * Math.PI * 2; 
+    }
+
+    if (isIce) {
+        newBlock.isIce = true;
+        // 视觉区分：普通的冰块是冰蓝色，极度危险的【移动冰块】是高能紫光色！
+        const iceColor = isMoving ? 0xcc88ff : 0x88ddff; 
+        const emissiveColor = isMoving ? 0x441155 : 0x113355;
+
+        const iceMat = new THREE.MeshPhysicalMaterial({
+            color: iceColor,       
+            transmission: 0.6,     
+            transparent: true,
+            opacity: 1,
+            metalness: 0.2,
+            roughness: 0.1,       
+            ior: 1.5,
+            emissive: emissiveColor,    
+            castShadow: true
+        });
+        
+        newBlock.instance.traverse((child) => {
+            if (child.isMesh) {
+                child.material = iceMat;
+            }
+        });
     }
   
     newBlock.instance.position.y = targetY + 15
@@ -356,24 +503,23 @@ export default class GamePage {
         camera.instance.updateProjectionMatrix();
     }
 
-    // ==========================================
-    // ✨【摩擦力同步引擎】：实时驱动方块与附着于其上的火柴人！
-    // ==========================================
     const now = Date.now();
-    // 永远获取火柴人当前“正在站立”的方块（即倒数第二个方块）
-    const currentStandingBlock = this.blocks[this.blocks.length - 2];
+    
+    let currentStandingBlock = this.blocks[this.blocks.length - 2];
+    if (this.isSliding) {
+        currentStandingBlock = this.blocks[this.blocks.length - 1];
+    }
 
     this.blocks.forEach(block => {
       if (block.isMoving && block.instance) {
         const basePos = block.moveAxis === 'x' ? block.baseX : block.baseZ;
-        const prevPos = block.instance.position[block.moveAxis]; // 记录上一帧位置
-        const newPos = basePos + Math.sin(now * block.moveSpeed + block.moveOffset) * block.moveRange; // 计算新位置
+        const prevPos = block.instance.position[block.moveAxis]; 
+        const newPos = basePos + Math.sin(now * block.moveSpeed + block.moveOffset) * block.moveRange; 
         
-        // 计算方块这一帧滑行的物理偏移量（Delta）
         const delta = newPos - prevPos;
         block.instance.position[block.moveAxis] = newPos;
 
-        // 【核心吸附逻辑】：如果火柴人正站在它上面（闲置或蓄力时），把增量赋给火柴人！
+        // 无论是静止、蓄力、还是打滑期间，火柴人都会完美吸收平台的移动增量
         if (block === currentStandingBlock && this.bottle && (this.bottle.status === 'stop' || this.bottle.status === 'prepare')) {
           this.bottle.obj.position[block.moveAxis] += delta;
         }

@@ -45,8 +45,8 @@ export default class GamePage {
     this.isGameOver = false
     this.clearBonusTimer() 
     gameModel.resetScore() 
+    this.stepCount = 0 
 
-    // 清理旧方块
     this.blocks.forEach(block => {
       this.scene.instance.remove(block.instance)
       if (block.dispose) block.dispose()
@@ -59,7 +59,6 @@ export default class GamePage {
     const cylinderBlock = new Cuboid(-15, 0, 0, 'default', initWidth)
     const cuboidBlock = new Cylinder(-15 + initDistance, 0, 0, 'default', initWidth)
     
-    // 回归最纯净的原生场景加载，剔除导致卡顿的包裹层
     this.scene.instance.add(cylinderBlock.instance)
     this.scene.instance.add(cuboidBlock.instance)
     this.blocks.push(cylinderBlock)
@@ -85,7 +84,14 @@ export default class GamePage {
       const currentBlock = this.blocks[this.blocks.length - 2]
       const currentY = currentBlock.instance.position.y + blockConf.height / 2
       
-      this.bottle.prepare(nextBlock.instance.position, currentBlock, currentY)
+      // 【基准弹道锁定】：准备阶段永远朝向轨道的物理绝对中心线，不会随着方块左右摇摆
+      const targetPos = new THREE.Vector3(
+        nextBlock.baseX !== undefined ? nextBlock.baseX : nextBlock.instance.position.x,
+        nextBlock.instance.position.y,
+        nextBlock.baseZ !== undefined ? nextBlock.baseZ : nextBlock.instance.position.z
+      )
+      
+      this.bottle.prepare(targetPos, currentBlock, currentY)
       
       audioManager.play('scale_intro') 
       this.chargeAudioTimer = setInterval(() => { audioManager.play('scale_loop') }, 900)
@@ -105,7 +111,14 @@ export default class GamePage {
       const currentY = currentBlock.instance.position.y + blockConf.height / 2
       const nextY = nextBlock.instance.position.y + blockConf.height / 2
 
-      this.bottle.jump(pressTime, currentY, nextY, nextBlock.instance.position, (isMicroStep) => { 
+      // 【基准弹道锁定】：起跳轨迹强制沿 X 轴或 Z 轴直线飞行，强迫玩家预判方块滑动时机
+      const targetPos = new THREE.Vector3(
+        nextBlock.baseX !== undefined ? nextBlock.baseX : nextBlock.instance.position.x,
+        nextBlock.instance.position.y,
+        nextBlock.baseZ !== undefined ? nextBlock.baseZ : nextBlock.instance.position.z
+      )
+
+      this.bottle.jump(pressTime, currentY, nextY, targetPos, (isMicroStep) => { 
         this.checkCollision(isMicroStep) 
       })
     })
@@ -122,7 +135,6 @@ export default class GamePage {
     const dzCurr = bottlePos.z - currentBlock.instance.position.z
 
     const checkStrictHit = (block, dx, dz) => {
-      // 保持极其真实的 2/3 脚掌边缘跌落检测容错率
       const margin = 0.5 
       if (block.type === 'cuboid') return Math.abs(dx) <= (block.width / 2 + margin) && Math.abs(dz) <= (block.width / 2 + margin)
       else return Math.sqrt(dx * dx + dz * dz) <= (block.width / 2 + margin)
@@ -137,8 +149,8 @@ export default class GamePage {
       if (isMicroStep) return;
 
       const blockDistance = Math.sqrt(
-        Math.pow(nextBlock.instance.position.x - currentBlock.instance.position.x, 2) + 
-        Math.pow(nextBlock.instance.position.z - currentBlock.instance.position.z, 2)
+        Math.pow((nextBlock.baseX || nextBlock.instance.position.x) - (currentBlock.baseX || currentBlock.instance.position.x), 2) + 
+        Math.pow((nextBlock.baseZ || nextBlock.instance.position.z) - (currentBlock.baseZ || currentBlock.instance.position.z), 2)
       )
       let baseScore = Math.max(1, Math.floor(blockDistance / 5)) 
       let finalScore = baseScore
@@ -185,7 +197,7 @@ export default class GamePage {
   }
 
   successJump(landedBlock) {
-    this.stepCount++   // ✅ 关键
+    this.stepCount++   
     this.generateNextBlock()
     this.updateCamera()
     this.startBonusTimer(landedBlock) 
@@ -211,108 +223,41 @@ export default class GamePage {
     if (this.bonusTimer) { clearTimeout(this.bonusTimer); this.bonusTimer = null }
   }
 
-  // generateNextBlock() {
-  //   const lastBlock = this.blocks[this.blocks.length - 1]
-    
-  //   const nextWidth = 5 + Math.random() * 15 
-  //   const minDistance = (lastBlock.width + nextWidth) / 2 + 1.2
-    
-  //   // 【完美广角匹配】：因为开启了固定广角，现在可以容纳最远 28 个单位的极限跳跃距离！
-  //   const maxDistance = 100 
-  //   const distance = minDistance + Math.random() * (maxDistance - minDistance)
-
-  //   const targetY = 0 
-  //   const isXDirection = Math.random() > 0.5 
-  //   let newX = lastBlock.instance.position.x
-  //   let newZ = lastBlock.instance.position.z
-
-  //   if (isXDirection) { newX += distance; this.bottle.direction = 'x' } 
-  //   else { newZ -= distance; this.bottle.direction = 'z' }
-
-  //   const isCuboid = Math.random() > 0.5 
-  //   let newBlock
-
-  //   if (isCuboid) {
-  //     newBlock = new Cuboid(newX, targetY, newZ, 'default', nextWidth)
-  //   } else {
-  //     newBlock = new Cylinder(newX, targetY, newZ, 'default', nextWidth)
-  //   }
-
-  //   newBlock.instance.position.y = targetY + 15
-  //   this.scene.instance.add(newBlock.instance)
-  //   this.blocks.push(newBlock)
-
-  //   CustomAnimation.to(newBlock.instance.position, { y: targetY }, 0.25)
-
-  //   if (this.blocks.length > 5) {
-  //     const oldBlock = this.blocks.shift()
-  //     this.scene.instance.remove(oldBlock.instance)
-  //     if (oldBlock.dispose) oldBlock.dispose() 
-  //   }
-  // }
-
   generateNextBlock() {
     const lastBlock = this.blocks[this.blocks.length - 1]
   
-    // =========================
-    // 🎯 1. 难度曲线（核心）
-    // =========================
     let t
-
     if (this.stepCount < 10) {
-      // 🎯 前10步：强制线性增长（不允许摆烂）
-      t = this.stepCount / 10   // 0 → 1 很快拉满
+      t = this.stepCount / 10   
     } else {
-      // 🎯 后面：进入正常成长曲线
       t = Math.min((this.stepCount - 10) / 50 + 1, 2)
     }
-    // t: 0 → 1（游戏进度）
   
-    // =========================
-    // 🎯 2. 方块大小（越后面越小）
-    // =========================
-    const minWidth = 6 - t * 3      // 6 → 3
-    const maxWidth = 20 - t * 10    // 20 → 10
+    const minWidth = 6 - t * 3      
+    const maxWidth = 20 - t * 10    
     const nextWidth = minWidth + Math.random() * (maxWidth - minWidth)
   
-    // =========================
-    // 🎯 3. 基础距离（逐渐变大）
-    // =========================
-    const baseMinDistance = Math.max(
-      (lastBlock.width + nextWidth) / 2 + 1.5,
-      8   // 👈 关键：绝对不允许太近
-    )
-  
-    const maxDistance = 12 + t * 60   // 12 → 72（逐渐拉大）
+    const baseMinDistance = Math.max((lastBlock.width + nextWidth) / 2 + 1.5, 8)
+    const maxDistance = 12 + t * 60   
     let distance = baseMinDistance + Math.random() * (maxDistance - baseMinDistance)
   
-    // =========================
-    // 🎁 4. “甜头机制”（关键！！！）
-    // =========================
-    const rewardChance = 0.15 + (t * 0.1)  // 后期更容易给甜头
-  
+    const rewardChance = 0.15 + (t * 0.1)  
     if (this.stepCount > 10 && Math.random() < rewardChance) {
-      // 给简单局
       distance *= 0.6
       nextWidth * 1.3
     }
   
-    // =========================
-    // 💀 5. “挑战点”（偶尔很难）
-    // =========================
     const challengeChance = 0.1 + t * 0.2
-  
     if (Math.random() < challengeChance) {
       distance *= 1.3
     }
   
-    // =========================
-    // 🎯 6. 方向逻辑（不变）
-    // =========================
     const targetY = 0 
     const isXDirection = Math.random() > 0.5 
-    let newX = lastBlock.instance.position.x
-    let newZ = lastBlock.instance.position.z
+    
+    // 使用基准坐标进行衍生，防止累积滑动误差
+    let newX = lastBlock.baseX !== undefined ? lastBlock.baseX : lastBlock.instance.position.x;
+    let newZ = lastBlock.baseZ !== undefined ? lastBlock.baseZ : lastBlock.instance.position.z;
   
     if (isXDirection) { 
       newX += distance
@@ -322,9 +267,6 @@ export default class GamePage {
       this.bottle.direction = 'z' 
     }
   
-    // =========================
-    // 🎯 7. 创建方块
-    // =========================
     const isCuboid = Math.random() > 0.5 
     let newBlock
   
@@ -333,6 +275,19 @@ export default class GamePage {
     } else {
       newBlock = new Cylinder(newX, targetY, newZ, 'default', nextWidth)
     }
+
+    newBlock.baseX = newX;
+    newBlock.baseZ = newZ;
+    
+    // 概率生成动态移动的方块
+    if (this.stepCount > 8 && Math.random() < 0.25) {
+        newBlock.isMoving = true;
+        newBlock.moveAxis = isXDirection ? 'z' : 'x'; 
+        const speedMultiplier = Math.min(1 + (this.stepCount - 8) / 40, 2.5);
+        newBlock.moveSpeed = (0.0015 + Math.random() * 0.001) * speedMultiplier;
+        newBlock.moveRange = 5 + Math.random() * 4;
+        newBlock.moveOffset = Math.random() * Math.PI * 2; 
+    }
   
     newBlock.instance.position.y = targetY + 15
     this.scene.instance.add(newBlock.instance)
@@ -340,12 +295,6 @@ export default class GamePage {
   
     CustomAnimation.to(newBlock.instance.position, { y: targetY }, 0.25)
   
-    // if (this.blocks.length > 5) {
-    //   const oldBlock = this.blocks.shift()
-    //   this.scene.instance.remove(oldBlock.instance)
-    //   if (oldBlock.dispose) oldBlock.dispose() 
-    // }
-
     this.cleanupBlocks()
   }
 
@@ -353,8 +302,7 @@ export default class GamePage {
     if (!this.camera || !this.camera.instance) return
   
     const cam = this.camera.instance
-  
-    const frustumSize = 10 // 和你 sceneConf 保持一致
+    const frustumSize = 10 
     const aspect = window.innerHeight / window.innerWidth
   
     const visibleWidth = frustumSize
@@ -365,7 +313,6 @@ export default class GamePage {
   
     this.blocks = this.blocks.filter(block => {
       const pos = block.instance.position
-  
       const inView =
         Math.abs(pos.x - camX) < visibleWidth * 1.5 &&
         Math.abs(pos.z - camZ) < visibleHeight * 1.5
@@ -375,7 +322,6 @@ export default class GamePage {
         if (block.dispose) block.dispose()
         return false
       }
-  
       return true
     })
   }
@@ -384,11 +330,15 @@ export default class GamePage {
     const lastBlock = this.blocks[this.blocks.length - 1] 
     const currentBlock = this.blocks[this.blocks.length - 2] 
     
-    // 摄像机永远极其平稳地追踪两个方块的中心点
+    const lastX = lastBlock.baseX !== undefined ? lastBlock.baseX : lastBlock.instance.position.x;
+    const lastZ = lastBlock.baseZ !== undefined ? lastBlock.baseZ : lastBlock.instance.position.z;
+    const currX = currentBlock.baseX !== undefined ? currentBlock.baseX : currentBlock.instance.position.x;
+    const currZ = currentBlock.baseZ !== undefined ? currentBlock.baseZ : currentBlock.instance.position.z;
+
     const targetPosition = new THREE.Vector3(
-      (lastBlock.instance.position.x + currentBlock.instance.position.x) / 2,
+      (lastX + currX) / 2,
       ((lastBlock.instance.position.y - 15) + currentBlock.instance.position.y) / 2,
-      (lastBlock.instance.position.z + currentBlock.instance.position.z) / 2
+      (lastZ + currZ) / 2
     )
     camera.updatePosition(targetPosition)
   }
@@ -396,28 +346,44 @@ export default class GamePage {
   render() {
     if (camera && camera.update) camera.update()
     
-    // ==========================================
-    // 【核心广角运镜】：操控底层 3D 摄像机 Zoom
-    // 1. 开始页面或死亡页面：标准视角 1.0
-    // 2. 游玩页面：固定广角 0.65，视野开阔不晕眩
-    // 3. 绝对不影响外部包裹的 2D 积分计分板！
-    // ==========================================
     let targetZoom = 1.0;
     if (gameModel.getStage() === 'game-page' && !this.isGameOver) {
         targetZoom = 0.80; 
     }
 
-    // 极其丝滑且性能拉满的线性插值过渡，杜绝死帧
     if (camera && camera.instance && Math.abs(camera.instance.zoom - targetZoom) > 0.001) {
         camera.instance.zoom += (targetZoom - camera.instance.zoom) * 0.08;
         camera.instance.updateProjectionMatrix();
     }
 
+    // ==========================================
+    // ✨【摩擦力同步引擎】：实时驱动方块与附着于其上的火柴人！
+    // ==========================================
+    const now = Date.now();
+    // 永远获取火柴人当前“正在站立”的方块（即倒数第二个方块）
+    const currentStandingBlock = this.blocks[this.blocks.length - 2];
+
+    this.blocks.forEach(block => {
+      if (block.isMoving && block.instance) {
+        const basePos = block.moveAxis === 'x' ? block.baseX : block.baseZ;
+        const prevPos = block.instance.position[block.moveAxis]; // 记录上一帧位置
+        const newPos = basePos + Math.sin(now * block.moveSpeed + block.moveOffset) * block.moveRange; // 计算新位置
+        
+        // 计算方块这一帧滑行的物理偏移量（Delta）
+        const delta = newPos - prevPos;
+        block.instance.position[block.moveAxis] = newPos;
+
+        // 【核心吸附逻辑】：如果火柴人正站在它上面（闲置或蓄力时），把增量赋给火柴人！
+        if (block === currentStandingBlock && this.bottle && (this.bottle.status === 'stop' || this.bottle.status === 'prepare')) {
+          this.bottle.obj.position[block.moveAxis] += delta;
+        }
+      }
+    });
+
     this.scene.render()
     if (this.bottle) this.bottle.update()
     requestAnimationFrame(this.render.bind(this))
 
-    // 在 zoom 更新之后
     scoreText.updateCameraCompensation()
   }
 

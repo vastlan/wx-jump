@@ -404,7 +404,7 @@ export default class GamePage {
     // ==========================================
     let targetZoom = 1.0;
     if (gameModel.getStage() === 'game-page' && !this.isGameOver) {
-        targetZoom = 0.65; 
+        targetZoom = 0.80; 
     }
 
     // 极其丝滑且性能拉满的线性插值过渡，杜绝死帧

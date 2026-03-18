@@ -163,6 +163,7 @@ class Bottle {
     this.currentPlaneY = currentPlaneY
     this.nextPlaneY = nextPlaneY
     
+    // 重置格子和火柴人的初始位置
     if (this.currentBlock) {
       this.currentBlock.instance.scale.y = 1
       this.currentBlock.instance.position.y = this.currentBlockOrigY
@@ -175,9 +176,10 @@ class Bottle {
     const dx = targetPos.x - this.startPos.x
     const dz = targetPos.z - this.startPos.z
     
-    // 【防崩溃锁】：防止计算除以 0 导致 WebGL NaN 崩溃卡死
+    // 【防崩溃锁】
     this.distanceToTarget = Math.max(Math.sqrt(dx * dx + dz * dz), 0.001)
 
+    // --- 轻按处理：原地踏步 ---
     if (pressTime < PRESS_TIME_THRESHOLD) {
       this.status = 'stop' 
       const tinyStep = 0.8
@@ -186,6 +188,7 @@ class Bottle {
         z: this.obj.position.z + (dz / this.distanceToTarget) * tinyStep
       }, 0.2)
 
+      // 原地踏步动作
       CustomAnimation.to(this.legL.rotation, { x: -0.4 }, 0.1)
       CustomAnimation.to(this.legR.rotation, { x: 0.4 }, 0.1)
       setTimeout(() => {
@@ -203,25 +206,15 @@ class Bottle {
         }
       }, 250)
       
-      CustomAnimation.to(this.legL.scale, { x: 1, y: 1, z: 1 }, 0.1)
-      CustomAnimation.to(this.legR.scale, { x: 1, y: 1, z: 1 }, 0.1)
-      CustomAnimation.to(this.body.scale, { x: 1, y: 1, z: 1 }, 0.1)
-      CustomAnimation.to(this.head.position, { y: 3.6 }, 0.1)
-      CustomAnimation.to(this.legL.position, { y: 2.0 }, 0.1)
-      CustomAnimation.to(this.legR.position, { y: 2.0 }, 0.1)
-      CustomAnimation.to(this.torsoGroup.position, { y: 2.0 }, 0.1)
-      CustomAnimation.to(this.torsoGroup.rotation, { x: 0 }, 0.1)
-      CustomAnimation.to(this.armL.rotation, { x: 0 }, 0.1)
-      CustomAnimation.to(this.armR.rotation, { x: 0 }, 0.1)
+      // 重置所有部件
+      this._resetBodyParts(0.1);
       return 
     }
 
+    // --- 正常跳跃 ---
     this.status = 'jump'
     
-    // ==========================================
-    // 【终极重构】：纯正线性物理体系！
-    // 扣除了微调时间，保证速度绝对从 0 开始丝滑起步，彻底告别“断崖起飞”
-    // ==========================================
+    // 扣除微调时间，保证速度绝对从 0 开始丝滑起步
     let effectivePressTime = Math.max(0, pressTime - PRESS_TIME_THRESHOLD)
 
     // 精调后的比例系数：让你按压 1 秒正好跳到屏幕中间的位置
@@ -232,19 +225,36 @@ class Bottle {
     this.velocity.vz = (dz / this.distanceToTarget) * totalScalarVelocity
     this.velocity.vy = 1.6
     
-    CustomAnimation.to(this.legL.scale, { x: 1, y: 1, z: 1 }, 0.1)
-    CustomAnimation.to(this.legR.scale, { x: 1, y: 1, z: 1 }, 0.1)
-    CustomAnimation.to(this.body.scale, { x: 1, y: 1, z: 1 }, 0.1)
-    CustomAnimation.to(this.head.position, { y: 3.6 }, 0.1)
-    CustomAnimation.to(this.legL.position, { y: 2.0 }, 0.1)
-    CustomAnimation.to(this.legR.position, { y: 2.0 }, 0.1)
-    CustomAnimation.to(this.torsoGroup.position, { y: 2.0 }, 0.1)
+    // 重置缩放和位置
+    this._resetBodyParts(0.1);
 
-    CustomAnimation.to(this.torsoGroup.rotation, { x: -0.4 }, 0.2) 
-    CustomAnimation.to(this.legL.rotation, { x: -1.2 }, 0.2) 
-    CustomAnimation.to(this.legR.rotation, { x: 1.2 }, 0.2)  
-    CustomAnimation.to(this.armL.rotation, { x: -1.8 }, 0.2) 
-    CustomAnimation.to(this.armR.rotation, { x: -1.8 }, 0.2)  
+    // ==========================================
+    // 【核心重构】：刹那间甩出手臂（进入马里奥姿态）
+    // ==========================================
+    
+    // 身体保持稍微前倾 (0.2)，让姿态更有冲劲
+    CustomAnimation.to(this.torsoGroup.rotation, { x: -0.2 }, 0.1) 
+    
+    // 左手臂：猛烈向前挥出 (-1.8)
+    CustomAnimation.to(this.armL.rotation, { x: -1.8 }, 0.1) 
+    
+    // 右手臂：自然向后伸展 (0.8)
+    CustomAnimation.to(this.armR.rotation, { x: 0.8 }, 0.1)  
+    
+    // 腿部：保持双腿弯曲 (-1.2, 1.2)
+    CustomAnimation.to(this.legL.rotation, { x: -1.2 }, 0.1) 
+    CustomAnimation.to(this.legR.rotation, { x: 1.2 }, 0.1) 
+  }
+
+  // --- 新增：重置身体部件的辅助方法 ---
+  _resetBodyParts(duration) {
+    CustomAnimation.to(this.legL.scale, { x: 1, y: 1, z: 1 }, duration)
+    CustomAnimation.to(this.legR.scale, { x: 1, y: 1, z: 1 }, duration)
+    CustomAnimation.to(this.body.scale, { x: 1, y: 1, z: 1 }, duration)
+    CustomAnimation.to(this.head.position, { y: 3.6 }, duration)
+    CustomAnimation.to(this.legL.position, { y: 2.0 }, duration)
+    CustomAnimation.to(this.legR.position, { y: 2.0 }, duration)
+    CustomAnimation.to(this.torsoGroup.position, { y: 2.0 }, duration)
   }
 
   fall(fallType) {
@@ -264,52 +274,58 @@ class Bottle {
 
   update() {
     if (this.status === 'prepare') {
-      // 1. 修改蓄力数值上限（原为 2.0）
-      // 如果你想让它“一直”压缩，可以将这个值改大，或者直接移除 Math.min
-      this.charge = Math.min(this.charge + 0.008, 10.0) // 比如改为 10.0
+      // 1. 基础物理蓄力值（决定跳多远），保持持续增加
+      this.charge = Math.min(this.charge + 0.012, 20.0) 
       
-      // 2. 修改视觉表现的上限（原为 1.2）
-      // 这个值直接决定了模型压扁的极限。值越大，压得越扁。
-      const visualCharge = Math.min(this.charge, 3.0) // 比如改为 3.0，甚至更大
+      // 2. 定义不同的视觉上限
+      // 姿势上限：身体前倾和手臂摆动在 charge 达到 1.5 时就停止变化
+      const poseCharge = Math.min(this.charge, 1.5); 
+      // 腿部和格子上限：允许持续压缩到极致
+      const compressCharge = Math.min(this.charge, 6.0); 
+
+      // 3. 肌肉微震颤（随总蓄力值增加，产生一种憋气的力量感）
+      const muscleTremor = Math.sin(Date.now() / 40) * 0.005 * poseCharge;
+
+      // 4. 【姿势固定】：躯干和手臂到达一定角度后不再变化
+      this.torsoGroup.rotation.x = -0.3 * poseCharge + muscleTremor;
+      const armRotationBase = -0.6 * poseCharge - 0.15;
+      this.armL.rotation.x = armRotationBase + muscleTremor;
+      this.armR.rotation.x = armRotationBase - muscleTremor; 
+
+      // 5. 【极致压缩】：腿部逐渐变扁，直到“看不见”
+      // 腿部 Y 轴缩放限制到极小的 0.01
+      const legScaleY = Math.max(1 - 0.5 * compressCharge, 0.01); 
+      const legScaleXZ = Math.sqrt(1 / Math.max(legScaleY, 0.1)); // 防止横向撑得太夸张
+      this.legL.scale.set(legScaleXZ, legScaleY, legScaleXZ);
+      this.legR.scale.set(legScaleXZ, legScaleY, legScaleXZ);
+
+      // 身体 Y 轴缩放也适当跟进，但保持一定体积（防变成薄片消失）
+      const bodyScaleY = Math.max(1 - 0.2 * compressCharge, 0.2);
+      const bodyScaleXZ = Math.sqrt(1 / bodyScaleY);
+      this.body.scale.set(bodyScaleXZ, bodyScaleY, bodyScaleXZ);
+
+      // 6. 位置同步：确保身体跟着腿部下降
+      const hipY = 2.0 * legScaleY;
+      this.legL.position.y = hipY;
+      this.legR.position.y = hipY;
+      this.torsoGroup.position.y = hipY;
       
-      // --- 以下是应用缩放的逻辑 ---
-      
-      // 腿部压缩：原代码有 Math.max(..., 0.3) 限制最低高度
-      // 如果想压得更狠，可以把 0.3 改小，例如 0.05
-      const legScaleY = Math.max(1 - 0.45 * visualCharge, 0.05) 
-      const legScaleXZ = Math.sqrt(1 / legScaleY)
-      this.legL.scale.set(legScaleXZ, legScaleY, legScaleXZ)
-      this.legR.scale.set(legScaleXZ, legScaleY, legScaleXZ)
+      const bodyHeightDiff = 2.4 * (1 - bodyScaleY);
+      this.head.position.y = 3.6 - bodyHeightDiff;
 
-      // 身体压缩：原代码有 Math.max(..., 0.6) 限制
-      const bodyScaleY = Math.max(1 - 0.2 * visualCharge, 0.1) // 比如改为 0.1
-      const bodyScaleXZ = Math.sqrt(1 / bodyScaleY)
-      this.body.scale.set(bodyScaleXZ, bodyScaleY, bodyScaleXZ)
-
-      const hipY = 2.0 * legScaleY
-      this.legL.position.y = hipY
-      this.legR.position.y = hipY
-      this.torsoGroup.position.y = hipY
-      
-      const bodyHeightDiff = 2.4 * (1 - bodyScaleY)
-      this.head.position.y = 3.6 - bodyHeightDiff
-
-      this.torsoGroup.rotation.x = -0.3 * visualCharge 
-      this.armL.rotation.x = -0.8 * visualCharge 
-      this.armR.rotation.x = -0.8 * visualCharge
-
+      // 7. 【格子压缩】：持续压缩
       if (this.currentBlock) {
-        // 3. 修改格子（Block）的压缩上限（原为 0.85）
-        // 如果希望格子也能一直压扁，把 0.85 改小
-        const blockScaleY = Math.max(1 - 0.15 * visualCharge, 0.1) // 比如改为 0.1
-        this.currentBlock.instance.scale.y = blockScaleY
-        const h = blockConf.height
-        const dy = (h - h * blockScaleY) / 2
+        const blockScaleY = Math.max(1 - 0.15 * compressCharge, 0.01);
+        this.currentBlock.instance.scale.y = blockScaleY;
+        const h = blockConf.height;
+        const dy = (h - h * blockScaleY) / 2;
         this.currentBlock.instance.position.y = this.currentBlockOrigY - dy
-        this.obj.position.y = this.currentPlaneY - 2 * dy
+        // 瓶子整体位置随格子下降，造成“陷入”感
+        this.obj.position.y = this.currentPlaneY - 2 * dy;
       }
 
     } else if (this.status === 'jump') {
+      // --- 飞行逻辑保持不变 ---
       this.flyingTime += 1
       const t = this.flyingTime
       const g = 0.12 
@@ -325,14 +341,23 @@ class Bottle {
       const currentDx = this.obj.position.x - this.startPos.x
       const currentDz = this.obj.position.z - this.startPos.z
       const distanceMoved = Math.sqrt(currentDx * currentDx + currentDz * currentDz)
-      
-      const targetY = (distanceMoved < this.distanceToTarget / 2) ? this.currentPlaneY : this.nextPlaneY
       const currentVelocityY = this.velocity.vy - g * t 
-
+      const targetY = (distanceMoved < this.distanceToTarget / 2) ? this.currentPlaneY : this.nextPlaneY
+      
+      if (Math.abs(currentVelocityY) < 0.2) {
+        this.armL.rotation.x = -1.6;
+      }
+      
       if (currentVelocityY < 0 && this.obj.position.y <= targetY) {
         this.status = 'stop'
         this.obj.position.y = targetY 
         
+        this.armL.rotation.x = 0;
+        this.armR.rotation.x = 0;
+        this.legL.rotation.x = 0;
+        this.legR.rotation.x = 0;
+        this.torsoGroup.rotation.x = 0;
+
         CustomAnimation.to(this.legL.scale, { x: 1.2, y: 0.6, z: 1.2 }, 0.05)
         CustomAnimation.to(this.legR.scale, { x: 1.2, y: 0.6, z: 1.2 }, 0.05)
         CustomAnimation.to(this.legL.position, { y: 1.2 }, 0.05)
@@ -340,18 +365,8 @@ class Bottle {
         CustomAnimation.to(this.torsoGroup.position, { y: 1.2 }, 0.05)
         
         setTimeout(() => {
-          CustomAnimation.to(this.legL.scale, { x: 1, y: 1, z: 1 }, 0.1)
-          CustomAnimation.to(this.legR.scale, { x: 1, y: 1, z: 1 }, 0.1)
-          CustomAnimation.to(this.legL.position, { y: 2.0 }, 0.1)
-          CustomAnimation.to(this.legR.position, { y: 2.0 }, 0.1)
-          CustomAnimation.to(this.torsoGroup.position, { y: 2.0 }, 0.1)
+          this._resetBodyParts(0.1);
         }, 50)
-
-        CustomAnimation.to(this.torsoGroup.rotation, { x: 0 }, 0.1)
-        CustomAnimation.to(this.armL.rotation, { x: 0 }, 0.1)
-        CustomAnimation.to(this.armR.rotation, { x: 0 }, 0.1)
-        CustomAnimation.to(this.legL.rotation, { x: 0 }, 0.1)
-        CustomAnimation.to(this.legR.rotation, { x: 0 }, 0.1)
         
         if (this.onLanding) {
           this.onLanding(false) 

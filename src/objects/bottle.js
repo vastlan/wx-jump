@@ -15,80 +15,152 @@ class Bottle {
     this.charge = 0 
     this.direction = 'x'
     this.lastDirection = 'x'
-    this.distanceToTarget = 0.001 // 赋予初始安全值防崩溃
+    this.distanceToTarget = 0.001 
     
     this.currentBlock = null 
     this.currentBlockOrigY = 0
     this.currentPlaneY = 0
+
+    this.baseScale = 1.35 
   }
 
   init() {
-    const loader = new THREE.TextureLoader()
-    const headTex = loader.load('res/images/head.png')
-    const topTex = loader.load('res/images/top.png')
-    const bottomTex = loader.load('res/images/bottom.png')
+    // ==========================================
+    // 【核心视觉】：美拉德高级盲盒玩偶 (Maillard Soft Doll)
+    // ==========================================
+    
+    const cHead = 0xEACCA8 
+    const cBody = 0xB36A32 
+    const cArm  = 0xC98A4B 
+    const cLeg  = 0x8A4F23 
+    const cFoot = 0x4A2F1D 
+    const cBlush = 0xFFB6C1 
 
-    const headMat = new THREE.MeshLambertMaterial({ map: headTex, color: 0xffffff })
-    const topMat = new THREE.MeshLambertMaterial({ map: topTex, color: 0xffffff })
-    const bottomMat = new THREE.MeshLambertMaterial({ map: bottomTex, color: 0xffffff })
-    const pureWhiteMat = new THREE.MeshLambertMaterial({ color: 0xffffff })
+    const matParams = { roughness: 0.5, metalness: 0.0 }
+    const matHead = new THREE.MeshStandardMaterial({ color: cHead, ...matParams })
+    const matBody = new THREE.MeshStandardMaterial({ color: cBody, ...matParams })
+    const matArm  = new THREE.MeshStandardMaterial({ color: cArm,  ...matParams })
+    const matLeg  = new THREE.MeshStandardMaterial({ color: cLeg,  ...matParams })
+    const matFoot = new THREE.MeshStandardMaterial({ color: cFoot, roughness: 0.7, metalness: 0 })
+    const matEye  = new THREE.MeshStandardMaterial({ color: cFoot, roughness: 0.3, metalness: 0.2 })
+    const matBlush = new THREE.MeshStandardMaterial({ color: cBlush, roughness: 0.8, metalness: 0 })
+
+    const createSmoothBone = (rTop, rBot, h, mat) => {
+      const group = new THREE.Group()
+      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, 32), mat)
+      cyl.castShadow = true
+      
+      const topSph = new THREE.Mesh(new THREE.SphereGeometry(rTop, 32, 16), mat)
+      topSph.position.y = h / 2
+      topSph.castShadow = true
+      
+      const botSph = new THREE.Mesh(new THREE.SphereGeometry(rBot, 32, 16), mat)
+      botSph.position.y = -h / 2
+      botSph.castShadow = true
+      
+      group.add(cyl, topSph, botSph)
+      return group
+    }
 
     const obj = this.obj = new THREE.Object3D()
     obj.position.set(bottleConf.initPosition.x, bottleConf.initPosition.y + 10, bottleConf.initPosition.z)
 
+    const dollFillLight = new THREE.DirectionalLight(0xfff0e6, 0.4)
+    dollFillLight.position.set(3, 5, 4)
+    obj.add(dollFillLight)
+
     this.directionWrapper = new THREE.Object3D()
     const bottle = this.bottle = new THREE.Object3D()
 
-    bottle.position.y = 0.25 
+    bottle.position.y = 0 
+    bottle.scale.set(this.baseScale, this.baseScale, this.baseScale)
 
     this.torsoGroup = new THREE.Object3D()
-    this.torsoGroup.position.y = 2.0 
+    this.torsoGroup.position.y = 1.6 
 
-    this.head = new THREE.Mesh(new THREE.SphereGeometry(1.4, 32, 32), headMat)
-    this.head.position.y = 3.6 
+    // ------------------------------------------
+    // 头部 
+    // ------------------------------------------
+    this.headGroup = new THREE.Group()
+    
+    const headGeom = new THREE.SphereGeometry(1.45, 32, 32)
+    headGeom.scale(1.15, 1.0, 1.15) 
+    this.head = new THREE.Mesh(headGeom, matHead)
     this.head.castShadow = true
-    this.torsoGroup.add(this.head)
+    this.headGroup.add(this.head)
 
-    this.body = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 2.4, 32), topMat)
+    const eyeGeom = new THREE.SphereGeometry(0.12, 16, 16)
+    const eyeL = new THREE.Mesh(eyeGeom, matEye)
+    eyeL.position.set(-0.45, 0, -1.38)
+    const eyeR = new THREE.Mesh(eyeGeom, matEye)
+    eyeR.position.set(0.45, 0, -1.38)
+    this.headGroup.add(eyeL, eyeR)
+
+    const blushGeom = new THREE.SphereGeometry(0.2, 16, 16)
+    blushGeom.scale(1.0, 0.5, 0.2) 
+    const blushL = new THREE.Mesh(blushGeom, matBlush)
+    blushL.position.set(-0.8, -0.2, -1.25)
+    blushL.rotation.z = 0.2
+    const blushR = new THREE.Mesh(blushGeom, matBlush)
+    blushR.position.set(0.8, -0.2, -1.25)
+    blushR.rotation.z = -0.2
+    this.headGroup.add(blushL, blushR)
+
+    this.headGroup.position.y = 3.6
+    this.torsoGroup.add(this.headGroup)
+
+    // ------------------------------------------
+    // 身体 
+    // ------------------------------------------
+    this.body = createSmoothBone(1.05, 0.75, 2.0, matBody)
     this.body.position.y = 1.2
-    this.body.rotation.y = Math.PI 
-    this.body.castShadow = true
     this.torsoGroup.add(this.body)
 
+    // ------------------------------------------
+    // 双臂
+    // ------------------------------------------
     this.armL = new THREE.Object3D()
     this.armL.position.set(-1.4, 2.0, 0) 
-    const armLMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 2.0, 16), topMat)
-    armLMesh.position.y = -0.8
-    armLMesh.castShadow = true
-    this.armL.add(armLMesh)
-    const handL = new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 16), pureWhiteMat)
-    handL.position.y = -2.0 
+    const armLInside = createSmoothBone(0.28, 0.22, 1.2, matArm)
+    armLInside.position.y = -0.7
+    armLInside.rotation.z = -0.15 
+    this.armL.add(armLInside)
+    
+    const handL = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 16), matArm)
+    handL.position.set(-0.15, -1.4, 0) 
     handL.castShadow = true
     this.armL.add(handL)
     this.torsoGroup.add(this.armL)
 
     this.armR = new THREE.Object3D()
     this.armR.position.set(1.4, 2.0, 0)
-    const armRMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 2.0, 16), topMat)
-    armRMesh.position.y = -0.8
-    armRMesh.castShadow = true
-    this.armR.add(armRMesh)
-    const handR = new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 16), pureWhiteMat)
-    handR.position.y = -2.0
+    const armRInside = createSmoothBone(0.28, 0.22, 1.2, matArm)
+    armRInside.position.y = -0.7
+    armRInside.rotation.z = 0.15 
+    this.armR.add(armRInside)
+    
+    const handR = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 16), matArm)
+    handR.position.set(0.15, -1.4, 0)
     handR.castShadow = true
     this.armR.add(handR)
     this.torsoGroup.add(this.armR)
 
+    // ------------------------------------------
+    // 腿部与脚丫
+    // ------------------------------------------
     const createLeg = (xOffset) => {
       const hip = new THREE.Object3D()
-      hip.position.set(xOffset, 2.0, 0) 
-      const legMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 2.0, 16), bottomMat)
-      legMesh.position.y = -1.0
-      legMesh.castShadow = true
-      hip.add(legMesh)
+      hip.position.set(xOffset, 1.6, 0) 
+      
+      const legInside = createSmoothBone(0.35, 0.25, 1.2, matLeg)
+      legInside.position.y = -0.7
+      legInside.rotation.x = 0.05 
+      hip.add(legInside)
 
-      const foot = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.5, 1.3), pureWhiteMat)
-      foot.position.set(0, -2.0, -0.25) 
+      const footGeom = new THREE.SphereGeometry(0.45, 16, 16)
+      footGeom.scale(1.0, 0.45, 1.4) 
+      const foot = new THREE.Mesh(footGeom, matFoot)
+      foot.position.set(0, -1.4, -0.2) 
       foot.castShadow = true
       hip.add(foot)
 
@@ -114,14 +186,14 @@ class Bottle {
     this.directionWrapper.rotation.set(0, -Math.PI / 2, 0) 
     this.bottle.rotation.set(0, 0, 0)
     
-    this.torsoGroup.position.y = 2.0
+    this.torsoGroup.position.y = 1.6 
     this.torsoGroup.rotation.set(0, 0, 0)
     
     this.body.scale.set(1, 1, 1)
-    this.head.position.y = 3.6
+    this.headGroup.position.y = 3.6
     
-    this.legL.position.y = 2.0
-    this.legR.position.y = 2.0
+    this.legL.position.y = 1.6 
+    this.legR.position.y = 1.6 
     this.legL.scale.set(1, 1, 1)
     this.legR.scale.set(1, 1, 1)
     this.legL.rotation.set(0, 0, 0)
@@ -130,6 +202,7 @@ class Bottle {
     this.armL.rotation.set(0, 0, 0)
     this.armR.rotation.set(0, 0, 0)
     
+    this.bottle.scale.set(this.baseScale, this.baseScale, this.baseScale)
     this.currentBlock = null
   }
 
@@ -163,7 +236,6 @@ class Bottle {
     this.currentPlaneY = currentPlaneY
     this.nextPlaneY = nextPlaneY
     
-    // 重置格子和火柴人的初始位置
     if (this.currentBlock) {
       this.currentBlock.instance.scale.y = 1
       this.currentBlock.instance.position.y = this.currentBlockOrigY
@@ -175,11 +247,8 @@ class Bottle {
 
     const dx = targetPos.x - this.startPos.x
     const dz = targetPos.z - this.startPos.z
-    
-    // 【防崩溃锁】
     this.distanceToTarget = Math.max(Math.sqrt(dx * dx + dz * dz), 0.001)
 
-    // --- 轻按处理：原地踏步 ---
     if (pressTime < PRESS_TIME_THRESHOLD) {
       this.status = 'stop' 
       const tinyStep = 0.8
@@ -188,36 +257,37 @@ class Bottle {
         z: this.obj.position.z + (dz / this.distanceToTarget) * tinyStep
       }, 0.2)
 
-      // 原地踏步动作
       CustomAnimation.to(this.legL.rotation, { x: -0.4 }, 0.1)
       CustomAnimation.to(this.legR.rotation, { x: 0.4 }, 0.1)
+      CustomAnimation.to(this.armL.rotation, { x: 0.4 }, 0.1)
+      CustomAnimation.to(this.armR.rotation, { x: -0.4 }, 0.1)
+      
       setTimeout(() => {
         CustomAnimation.to(this.legL.rotation, { x: 0.4 }, 0.1)
         CustomAnimation.to(this.legR.rotation, { x: -0.4 }, 0.1)
+        CustomAnimation.to(this.armL.rotation, { x: -0.4 }, 0.1)
+        CustomAnimation.to(this.armR.rotation, { x: 0.4 }, 0.1)
       }, 100)
       
       setTimeout(() => {
         CustomAnimation.to(this.legL.rotation, { x: 0 }, 0.1)
         CustomAnimation.to(this.legR.rotation, { x: 0 }, 0.1)
-        
+        CustomAnimation.to(this.armL.rotation, { x: 0 }, 0.1)
+        CustomAnimation.to(this.armR.rotation, { x: 0 }, 0.1)
         if (this.onLanding) {
           this.onLanding(true) 
           this.onLanding = null
         }
       }, 250)
       
-      // 重置所有部件
       this._resetBodyParts(0.1);
+      CustomAnimation.to(this.bottle.scale, { x: this.baseScale, y: this.baseScale, z: this.baseScale }, 0.1)
       return 
     }
 
-    // --- 正常跳跃 ---
     this.status = 'jump'
     
-    // 扣除微调时间，保证速度绝对从 0 开始丝滑起步
     let effectivePressTime = Math.max(0, pressTime - PRESS_TIME_THRESHOLD)
-
-    // 精调后的比例系数：让你按压 1 秒正好跳到屏幕中间的位置
     const JUMP_FACTOR = 0.00062 
     const totalScalarVelocity = effectivePressTime * JUMP_FACTOR 
 
@@ -225,36 +295,24 @@ class Bottle {
     this.velocity.vz = (dz / this.distanceToTarget) * totalScalarVelocity
     this.velocity.vy = 1.6
     
-    // 重置缩放和位置
     this._resetBodyParts(0.1);
+    CustomAnimation.to(this.bottle.scale, { x: this.baseScale, y: this.baseScale, z: this.baseScale }, 0.1)
 
-    // ==========================================
-    // 【核心重构】：刹那间甩出手臂（进入马里奥姿态）
-    // ==========================================
-    
-    // 身体保持稍微前倾 (0.2)，让姿态更有冲劲
     CustomAnimation.to(this.torsoGroup.rotation, { x: -0.2 }, 0.1) 
-    
-    // 左手臂：猛烈向前挥出 (-1.8)
     CustomAnimation.to(this.armL.rotation, { x: -1.8 }, 0.1) 
-    
-    // 右手臂：自然向后伸展 (0.8)
     CustomAnimation.to(this.armR.rotation, { x: 0.8 }, 0.1)  
-    
-    // 腿部：保持双腿弯曲 (-1.2, 1.2)
     CustomAnimation.to(this.legL.rotation, { x: -1.2 }, 0.1) 
     CustomAnimation.to(this.legR.rotation, { x: 1.2 }, 0.1) 
   }
 
-  // --- 新增：重置身体部件的辅助方法 ---
   _resetBodyParts(duration) {
     CustomAnimation.to(this.legL.scale, { x: 1, y: 1, z: 1 }, duration)
     CustomAnimation.to(this.legR.scale, { x: 1, y: 1, z: 1 }, duration)
     CustomAnimation.to(this.body.scale, { x: 1, y: 1, z: 1 }, duration)
-    CustomAnimation.to(this.head.position, { y: 3.6 }, duration)
-    CustomAnimation.to(this.legL.position, { y: 2.0 }, duration)
-    CustomAnimation.to(this.legR.position, { y: 2.0 }, duration)
-    CustomAnimation.to(this.torsoGroup.position, { y: 2.0 }, duration)
+    CustomAnimation.to(this.headGroup.position, { y: 3.6 }, duration)
+    CustomAnimation.to(this.legL.position, { y: 1.6 }, duration) 
+    CustomAnimation.to(this.legR.position, { y: 1.6 }, duration)
+    CustomAnimation.to(this.torsoGroup.position, { y: 1.6 }, duration)
   }
 
   fall(fallType) {
@@ -274,58 +332,49 @@ class Bottle {
 
   update() {
     if (this.status === 'prepare') {
-      // 1. 基础物理蓄力值（决定跳多远），保持持续增加
       this.charge = Math.min(this.charge + 0.012, 20.0) 
       
-      // 2. 定义不同的视觉上限
-      // 姿势上限：身体前倾和手臂摆动在 charge 达到 1.5 时就停止变化
-      const poseCharge = Math.min(this.charge, 1.5); 
-      // 腿部和格子上限：允许持续压缩到极致
-      const compressCharge = Math.min(this.charge, 6.0); 
-
-      // 3. 肌肉微震颤（随总蓄力值增加，产生一种憋气的力量感）
-      const muscleTremor = Math.sin(Date.now() / 40) * 0.005 * poseCharge;
-
-      // 4. 【姿势固定】：躯干和手臂到达一定角度后不再变化
-      this.torsoGroup.rotation.x = -0.3 * poseCharge + muscleTremor;
-      const armRotationBase = -0.6 * poseCharge - 0.15;
-      this.armL.rotation.x = armRotationBase + muscleTremor;
-      this.armR.rotation.x = armRotationBase - muscleTremor; 
-
-      // 5. 【极致压缩】：腿部逐渐变扁，直到“看不见”
-      // 腿部 Y 轴缩放限制到极小的 0.01
-      const legScaleY = Math.max(1 - 0.5 * compressCharge, 0.01); 
-      const legScaleXZ = Math.sqrt(1 / Math.max(legScaleY, 0.1)); // 防止横向撑得太夸张
-      this.legL.scale.set(legScaleXZ, legScaleY, legScaleXZ);
-      this.legR.scale.set(legScaleXZ, legScaleY, legScaleXZ);
-
-      // 身体 Y 轴缩放也适当跟进，但保持一定体积（防变成薄片消失）
-      const bodyScaleY = Math.max(1 - 0.2 * compressCharge, 0.2);
-      const bodyScaleXZ = Math.sqrt(1 / bodyScaleY);
-      this.body.scale.set(bodyScaleXZ, bodyScaleY, bodyScaleXZ);
-
-      // 6. 位置同步：确保身体跟着腿部下降
-      const hipY = 2.0 * legScaleY;
-      this.legL.position.y = hipY;
-      this.legR.position.y = hipY;
-      this.torsoGroup.position.y = hipY;
+      const charCharge = Math.min(this.charge, 0.9) 
       
-      const bodyHeightDiff = 2.4 * (1 - bodyScaleY);
-      this.head.position.y = 3.6 - bodyHeightDiff;
+      // ==========================================
+      // 【终极物理优化】：取消全局压扁！
+      // 只压缩腿部，同时让上半身保持圆润，随着腿部下沉！
+      // ==========================================
+      const squashY = Math.max(1 - 0.45 * charCharge, 0.4) 
+      const stretchXZ = Math.sqrt(1 / squashY)
 
-      // 7. 【格子压缩】：持续压缩
+      // 锁定全局放大系数，严禁全身变形！
+      this.bottle.scale.set(this.baseScale, this.baseScale, this.baseScale)
+
+      // 仅仅压缩双腿（模拟屈膝受力）
+      this.legL.scale.set(stretchXZ, squashY, stretchXZ)
+      this.legR.scale.set(stretchXZ, squashY, stretchXZ)
+
+      // 精确的脚底锚定数学：
+      // 脚底在骨盆(Y=1.6)下方的距离正好是 -1.4。腿部被压缩时，为了保证脚底板不悬空，必须整体下沉。
+      const dropY = 1.4 * (1 - squashY)
+      const newY = 1.6 - dropY
+
+      // 将腿部和完整的上半身(头胸手)一起平移下沉
+      this.legL.position.y = newY
+      this.legR.position.y = newY
+      this.torsoGroup.position.y = newY
+
+      // 身体前倾和手臂蓄力后摆
+      this.torsoGroup.rotation.x = -0.05 - (0.4 * charCharge)
+      this.armL.rotation.x = -0.8 * charCharge 
+      this.armR.rotation.x = -0.8 * charCharge 
+
       if (this.currentBlock) {
-        const blockScaleY = Math.max(1 - 0.15 * compressCharge, 0.01);
-        this.currentBlock.instance.scale.y = blockScaleY;
-        const h = blockConf.height;
-        const dy = (h - h * blockScaleY) / 2;
+        const blockScaleY = Math.max(1 - 0.15 * this.charge, 0.2)
+        this.currentBlock.instance.scale.y = blockScaleY
+        const h = blockConf.height
+        const dy = (h - h * blockScaleY) / 2
         this.currentBlock.instance.position.y = this.currentBlockOrigY - dy
-        // 瓶子整体位置随格子下降，造成“陷入”感
-        this.obj.position.y = this.currentPlaneY - 2 * dy;
+        this.obj.position.y = this.currentPlaneY - 2 * dy
       }
 
     } else if (this.status === 'jump') {
-      // --- 飞行逻辑保持不变 ---
       this.flyingTime += 1
       const t = this.flyingTime
       const g = 0.12 
@@ -334,7 +383,6 @@ class Bottle {
       this.obj.position.x = this.startPos.x + this.velocity.vx * t
       this.obj.position.z = this.startPos.z + this.velocity.vz * t
 
-      // 拖尾效果
       // if (this.flyingTime % 2 === 0) {
       //   tail.createTail(scene.instance, this.obj.position, this.directionWrapper.rotation)
       // }
@@ -342,32 +390,25 @@ class Bottle {
       const currentDx = this.obj.position.x - this.startPos.x
       const currentDz = this.obj.position.z - this.startPos.z
       const distanceMoved = Math.sqrt(currentDx * currentDx + currentDz * currentDz)
-      const currentVelocityY = this.velocity.vy - g * t 
+      
       const targetY = (distanceMoved < this.distanceToTarget / 2) ? this.currentPlaneY : this.nextPlaneY
-      
-      if (Math.abs(currentVelocityY) < 0.2) {
-        this.armL.rotation.x = -1.6;
-      }
-      
+      const currentVelocityY = this.velocity.vy - g * t 
+
       if (currentVelocityY < 0 && this.obj.position.y <= targetY) {
         this.status = 'stop'
         this.obj.position.y = targetY 
         
-        this.armL.rotation.x = 0;
-        this.armR.rotation.x = 0;
-        this.legL.rotation.x = 0;
-        this.legR.rotation.x = 0;
-        this.torsoGroup.rotation.x = 0;
-
-        CustomAnimation.to(this.legL.scale, { x: 1.2, y: 0.6, z: 1.2 }, 0.05)
-        CustomAnimation.to(this.legR.scale, { x: 1.2, y: 0.6, z: 1.2 }, 0.05)
-        CustomAnimation.to(this.legL.position, { y: 1.2 }, 0.05)
-        CustomAnimation.to(this.legR.position, { y: 1.2 }, 0.05)
-        CustomAnimation.to(this.torsoGroup.position, { y: 1.2 }, 0.05)
-        
+        // 落地时短暂的全局果冻 Q 弹缓冲，因为极其短暂（50ms），只会增加可爱感
+        CustomAnimation.to(this.bottle.scale, { x: 1.2 * this.baseScale, y: 0.6 * this.baseScale, z: 1.2 * this.baseScale }, 0.05)
         setTimeout(() => {
-          this._resetBodyParts(0.1);
+          CustomAnimation.to(this.bottle.scale, { x: this.baseScale, y: this.baseScale, z: this.baseScale }, 0.1)
         }, 50)
+
+        CustomAnimation.to(this.torsoGroup.rotation, { x: -0.05 }, 0.1)
+        CustomAnimation.to(this.armL.rotation, { x: 0 }, 0.1)
+        CustomAnimation.to(this.armR.rotation, { x: 0 }, 0.1)
+        CustomAnimation.to(this.legL.rotation, { x: 0 }, 0.1)
+        CustomAnimation.to(this.legR.rotation, { x: 0 }, 0.1)
         
         if (this.onLanding) {
           this.onLanding(false) 

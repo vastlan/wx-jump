@@ -334,9 +334,10 @@ class Bottle {
       this.obj.position.x = this.startPos.x + this.velocity.vx * t
       this.obj.position.z = this.startPos.z + this.velocity.vz * t
 
-      if (this.flyingTime % 2 === 0) {
-        tail.createTail(scene.instance, this.obj.position, this.directionWrapper.rotation)
-      }
+      // 拖尾效果
+      // if (this.flyingTime % 2 === 0) {
+      //   tail.createTail(scene.instance, this.obj.position, this.directionWrapper.rotation)
+      // }
 
       const currentDx = this.obj.position.x - this.startPos.x
       const currentDz = this.obj.position.z - this.startPos.z

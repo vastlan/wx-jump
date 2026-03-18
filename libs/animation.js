@@ -44,7 +44,7 @@ export function TweenAnimation(from, to, duration = 3, type = 'Linear', callback
       start = start + _start
     }
 
-    console.log(start, frameCount, interval)
+    // console.log(start, frameCount, interval)
     const value = tweenFn(start, from, to - from, frameCount)
 
     if (start <= frameCount) {

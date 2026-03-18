@@ -21953,7 +21953,7 @@
         session.addEventListener( 'inputsourceschange', function () {
 
           inputSources = session.getInputSources();
-          console.log( inputSources );
+          // console.log( inputSources );
 
           for ( var i = 0; i < controllers.length; i ++ ) {
 

@@ -20,6 +20,7 @@ export default class GamePage {
     this.blocks = [] 
     this.isGameOver = false 
     this.bonusTimer = null 
+    this.chargeAudioTimer = null // 新增：无限蓄力音效计时器
   }
 
   init() {
@@ -81,13 +82,33 @@ export default class GamePage {
       if (gameModel.getStage() !== 'game-page' || this.isGameOver) return 
       this.clearBonusTimer() 
       this.touchStartTime = Date.now()
-      this.bottle.prepare()
+      
+      const nextBlock = this.blocks[this.blocks.length - 1]
+      this.bottle.prepare(nextBlock.instance.position)
+      
+      // ==========================================
+      // 核心升级 2：无限蓄力音效循环
+      // ==========================================
       audioManager.play('scale_intro') 
+      // 约 900ms 后 intro 结束，开始无缝循环 loop 音效
+      this.chargeAudioTimer = setInterval(() => {
+        audioManager.play('scale_loop')
+      }, 900)
     })
 
     wx.onTouchEnd(() => {
       if (gameModel.getStage() !== 'game-page' || this.isGameOver) return
+      
+      // ==========================================
+      // 核心升级 2：松手时立刻掐断所有蓄力音效
+      // ==========================================
+      if (this.chargeAudioTimer) {
+        clearInterval(this.chargeAudioTimer)
+        this.chargeAudioTimer = null
+      }
       audioManager.stop('scale_intro') 
+      audioManager.stop('scale_loop') 
+
       const touchEndTime = Date.now()
       const pressTime = touchEndTime - this.touchStartTime
       
@@ -96,7 +117,7 @@ export default class GamePage {
       const currentY = currentBlock.instance.position.y + blockConf.height / 2
       const nextY = nextBlock.instance.position.y + blockConf.height / 2
 
-      this.bottle.jump(pressTime, currentY, nextY, () => {
+      this.bottle.jump(pressTime, currentY, nextY, nextBlock.instance.position, () => {
          this.checkCollision() 
       })
     })
@@ -115,19 +136,10 @@ export default class GamePage {
     const dzCurr = bottlePos.z - currentBlock.instance.position.z
     const distanceToCurr = Math.sqrt(dxCurr * dxCurr + dzCurr * dzCurr)
 
-    // ========================================================
-    // 核心物理修复：精确的带补偿碰撞检测
-    // ========================================================
-    
-    // 小人本身的物理底座半径（来源于 bottleConf.bodyWidth / 2 = 1.4）
     const BOTTLE_R = 1.4 
-
     const getHitRadius = (block) => {
       const baseRadius = block.width / 2
-      // 如果是正方形方块(cuboid)，其对角线（四个角）距离中心更远
-      // 增加 1.25 的形状系数补偿，确保跳在角落依然判定成功
       const shapeFactor = block.type === 'cuboid' ? 1.25 : 1.0
-      // 最终的安全落点半径 = 方块几何判定半径 + 小人身体半径
       return baseRadius * shapeFactor + BOTTLE_R
     }
 
@@ -173,7 +185,6 @@ export default class GamePage {
       gameModel.saveHighestScore()
 
       let fallType = 'straight'
-      // 失误动画的边缘触发范围也同步向外扩展，体验更真实
       if (distanceToNext >= NEXT_RADIUS && distanceToNext < NEXT_RADIUS + 2.0) {
         if (this.bottle.direction === 'x') {
           fallType = dx < 0 ? 'tiltBackward' : 'tiltForward'
@@ -234,15 +245,10 @@ export default class GamePage {
     const score = gameModel.score
     
     let hardProb = 0.20 
-    if (score >= 80) {
-      hardProb = 0.80   
-    } else if (score >= 60) {
-      hardProb = 0.60   
-    } else if (score >= 40) {
-      hardProb = 0.50   
-    } else if (score >= 20) {
-      hardProb = 0.40   
-    }
+    if (score >= 80) hardProb = 0.80   
+    else if (score >= 60) hardProb = 0.60   
+    else if (score >= 40) hardProb = 0.50   
+    else if (score >= 20) hardProb = 0.40   
 
     const isHard = Math.random() < hardProb
     let nextWidth, distance, heightDiff
@@ -322,8 +328,5 @@ export default class GamePage {
 
   show() { console.log('game page show') }
   hide() { console.log('game page hide') }
-  
-  restart() { 
-    this.resetGame() 
-  }
+  restart() { this.resetGame() }
 }

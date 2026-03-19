@@ -13,7 +13,6 @@ import scoreText3d from '../objects/score-text-3d'
 import { CustomAnimation } from '../../libs/animation' 
 import particle from '../objects/particle' 
 
-// 安全调用微信震动 API
 const safeVibrate = (type) => {
   try {
     if (type === 'long') wx.vibrateLong()
@@ -35,6 +34,12 @@ export default class GamePage {
     this.lastFrameTime = Date.now()
     this.activeCollapsingBlock = null 
     this.lastVibrateTime = 0 
+
+    this.standingBlock = null
+
+    // Fever 模式核心控制状态
+    this.isFeverMode = false
+    this.feverJumpsLeft = 0
   }
 
   init() {
@@ -62,6 +67,8 @@ export default class GamePage {
     this.isSliding = false
     this.activeCollapsingBlock = null
     this.lastVibrateTime = 0
+    this.isFeverMode = false
+    this.feverJumpsLeft = 0
 
     this.blocks.forEach(block => {
       this.scene.instance.remove(block.instance)
@@ -84,6 +91,8 @@ export default class GamePage {
     this.blocks.push(cylinderBlock)
     this.blocks.push(cuboidBlock)
     
+    this.standingBlock = cylinderBlock
+
     this.bottle.reset() 
     this.bottle.obj.position.set(-15, 0, 0)
     this.bottle.showUp()
@@ -96,14 +105,18 @@ export default class GamePage {
 
   bindTouchEvent() {
     wx.onTouchStart(() => {
-      if (gameModel.getStage() !== 'game-page' || this.isGameOver || this.isSliding) return 
+      if (gameModel.getStage() !== 'game-page' || this.isGameOver || this.isSliding || this.isFeverMode) return 
       this.clearBonusTimer() 
       
       safeVibrate('light') 
 
       this.touchStartTime = Date.now()
-      const nextBlock = this.blocks[this.blocks.length - 1]
-      const currentBlock = this.blocks[this.blocks.length - 2]
+
+      const currentIdx = this.blocks.indexOf(this.standingBlock)
+      const currentBlock = this.blocks[currentIdx]
+      const nextBlock = this.blocks[currentIdx + 1]
+      if (!currentBlock || !nextBlock) return
+
       const currentY = currentBlock.instance.position.y + blockConf.height / 2
       
       const targetPos = new THREE.Vector3(
@@ -119,7 +132,7 @@ export default class GamePage {
     })
 
     wx.onTouchEnd(() => {
-      if (gameModel.getStage() !== 'game-page' || this.isGameOver || this.isSliding) return
+      if (gameModel.getStage() !== 'game-page' || this.isGameOver || this.isSliding || this.isFeverMode) return
       
       if (this.chargeAudioTimer) { clearInterval(this.chargeAudioTimer); this.chargeAudioTimer = null }
       audioManager.stop('scale_intro') 
@@ -127,8 +140,12 @@ export default class GamePage {
 
       const touchEndTime = Date.now()
       const pressTime = touchEndTime - this.touchStartTime
-      const currentBlock = this.blocks[this.blocks.length - 2]
-      const nextBlock = this.blocks[this.blocks.length - 1]
+
+      const currentIdx = this.blocks.indexOf(this.standingBlock)
+      const currentBlock = this.blocks[currentIdx]
+      const nextBlock = this.blocks[currentIdx + 1]
+      if (!currentBlock || !nextBlock) return
+
       const currentY = currentBlock.instance.position.y + blockConf.height / 2
       const nextY = nextBlock.instance.position.y + blockConf.height / 2
 
@@ -144,6 +161,45 @@ export default class GamePage {
     })
   }
 
+  // ✨【Fever 物理代打引擎】
+  executeAutoJump() {
+      if (this.feverJumpsLeft <= 0 || this.isGameOver) {
+          this.isFeverMode = false;
+          return;
+      }
+      
+      const currentIdx = this.blocks.indexOf(this.standingBlock)
+      const currentBlock = this.blocks[currentIdx]
+      const nextBlock = this.blocks[currentIdx + 1]
+      if (!currentBlock || !nextBlock) {
+          this.isFeverMode = false;
+          return;
+      }
+      
+      const nextX = nextBlock.baseX !== undefined ? nextBlock.baseX : nextBlock.instance.position.x;
+      const nextZ = nextBlock.baseZ !== undefined ? nextBlock.baseZ : nextBlock.instance.position.z;
+      // 精准计算目标底盘高度
+      const targetPos = new THREE.Vector3(nextX, nextBlock.instance.position.y, nextZ); 
+      
+      const currentY = currentBlock.instance.position.y + blockConf.height / 2;
+      const nextY = nextBlock.instance.position.y + blockConf.height / 2;
+      
+      this.bottle.prepare(targetPos, currentBlock, currentY);
+      
+      const dx = targetPos.x - this.bottle.obj.position.x;
+      const dz = targetPos.z - this.bottle.obj.position.z;
+      const distance = Math.max(Math.sqrt(dx*dx + dz*dz), 0.001);
+      
+      // 反推底层跳跃抛物线公式，得出命中红心所需的绝对物理毫秒数
+      const pressTime = (distance / 0.01674) + 150; 
+      
+      this.bottle.jump(pressTime, currentY, nextY, targetPos, (isMicroStep) => {
+          this.checkCollision(isMicroStep);
+      });
+      
+      this.feverJumpsLeft--;
+  }
+
   _checkStrictHit(block, dx, dz) {
     const margin = 0.5 
     if (block.type === 'cuboid') return Math.abs(dx) <= (block.width / 2 + margin) && Math.abs(dz) <= (block.width / 2 + margin)
@@ -151,8 +207,11 @@ export default class GamePage {
   }
 
   checkCollision(isMicroStep = false) {
-    const currentBlock = this.blocks[this.blocks.length - 2]
-    const nextBlock = this.blocks[this.blocks.length - 1]
+    const currentIdx = this.blocks.indexOf(this.standingBlock)
+    const currentBlock = this.blocks[currentIdx]
+    const nextBlock = this.blocks[currentIdx + 1]
+    if (!currentBlock || !nextBlock) return
+
     const bottlePos = this.bottle.obj.position
 
     const nextX = nextBlock.baseX !== undefined ? nextBlock.baseX : nextBlock.instance.position.x;
@@ -173,15 +232,16 @@ export default class GamePage {
     const dxCurr = bottlePos.x - realCurrX;
     const dzCurr = bottlePos.z - realCurrZ;
 
-    const hitNext = this._checkStrictHit(nextBlock, dxNext, dzNext) && !nextBlock.hasCollapsed;
-    const hitCurr = this._checkStrictHit(currentBlock, dxCurr, dzCurr) && !currentBlock.hasCollapsed;
+    const hitNext = (this._checkStrictHit(nextBlock, dxNext, dzNext) || this.isFeverMode) && !nextBlock.hasCollapsed;
+    const hitCurr = (this._checkStrictHit(currentBlock, dxCurr, dzCurr) || this.isFeverMode) && !currentBlock.hasCollapsed;
+    
     const distanceToNextCenter = Math.sqrt(dxNext * dxNext + dzNext * dzNext)
     const CENTER_RADIUS = Math.min(2.5, nextBlock.width / 3.5)
 
     if (hitNext) {
       if (isMicroStep) return;
 
-      if (nextBlock.isIce && distanceToNextCenter >= CENTER_RADIUS) {
+      if (nextBlock.isIce && distanceToNextCenter >= CENTER_RADIUS && !this.isFeverMode) {
         this.isSliding = true;
         const dxTotal = nextX - currX;
         const dzTotal = nextZ - currZ;
@@ -267,30 +327,56 @@ export default class GamePage {
     let baseScore = Math.max(1, Math.floor(blockDistance / 5)) 
     let finalScore = baseScore
 
-    let isPerfect = (!wasSliding && distanceToNextCenter < CENTER_RADIUS);
+    let isPerfect = (!wasSliding && distanceToNextCenter < CENTER_RADIUS) || this.isFeverMode;
     let isBlindSnipe = false;
 
-    // ✨【盲狙判定】：判定一定要放在实体化之前！使用新的 10s 周期算法
-    if (nextBlock.isMirage && isPerfect) {
-        // 频率调整为 PI / 10，完全匹配底层的 10s 呼吸相
+    // ✨【安全锁定】：Fever 时，每一跳结束强制修正火柴人到底盘几何中心！杜绝任何浮点数偏移积累
+    if (this.isFeverMode) {
+        this.bottle.obj.position.x = nextBlock.baseX;
+        this.bottle.obj.position.z = nextBlock.baseZ;
+    }
+
+    if (nextBlock.isMirage && isPerfect && !this.isFeverMode) {
         const currentOpacity = Math.pow(Math.sin((Date.now() / 1000) * (Math.PI / 10) + nextBlock.mirageOffset), 2);
         if (currentOpacity < 0.20) { 
             isBlindSnipe = true;
         }
     }
 
-    // ==========================================
-    // ✨【优化3：落地即实体】：只要火柴人落在上面，幻影立刻破除！
-    // 给予玩家绝对的心理安全感
-    // ==========================================
     if (nextBlock.isMirage) {
         nextBlock.isMirage = false; 
         nextBlock.instance.traverse(c => {
             if (c.isMesh && c.material) {
-                c.material.opacity = 1;         // 强制100%实体可见
-                c.material.transparent = false; // 取消透明材质，提升GPU性能
+                c.material.opacity = 1;         
+                c.material.transparent = false; 
             }
         });
+    }
+
+    // ✨【Fever 星星结算】：无功不受禄
+    if (nextBlock.hasFeverItem) {
+        nextBlock.hasFeverItem = false;
+        
+        if (isPerfect && !this.isFeverMode) {
+            // 完美踩中！开启暴走神罗天征
+            if (nextBlock.feverOrb) nextBlock.instance.remove(nextBlock.feverOrb); 
+            
+            this.isFeverMode = true;
+            this.feverJumpsLeft = 5; 
+            safeVibrate('heavy');
+            audioManager.play('combo8'); 
+
+            // 瞬间召唤 5 个完全安全的实体方块
+            for(let i = 0; i < 5; i++) {
+                this.generateNextBlock(true);
+            }
+        } else if (!this.isFeverMode) {
+            // 踩偏惩罚：星星直接萎缩消失！
+            if (nextBlock.feverOrb) {
+                CustomAnimation.to(nextBlock.feverOrb.scale, {x: 0.01, y: 0.01, z: 0.01}, 0.2);
+                setTimeout(() => nextBlock.instance.remove(nextBlock.feverOrb), 200);
+            }
+        }
     }
 
     if (isBlindSnipe) {
@@ -315,7 +401,7 @@ export default class GamePage {
       audioManager.play('success') 
     }
 
-    if (nextBlock.isCollapsing && !isBlindSnipe) {
+    if (nextBlock.isCollapsing && !isBlindSnipe && !this.isFeverMode) {
       safeVibrate('heavy'); 
     } else if (!isPerfect && !isBlindSnipe) {
       safeVibrate('light'); 
@@ -332,6 +418,7 @@ export default class GamePage {
     this.isGameOver = true
     this.activeCollapsingBlock = null; 
     this.isSliding = false;
+    this.isFeverMode = false;
     
     audioManager.play('fall') 
     safeVibrate('long') 
@@ -353,9 +440,13 @@ export default class GamePage {
   successJump(currentBlock, landedBlock) {
     this.stepCount++   
     
-    if (currentBlock && currentBlock.isCollapsing && !currentBlock.hasCollapsed) {
-        currentBlock.hasCollapsed = true;
-        CustomAnimation.to(currentBlock.instance.scale, {x: 0.01, y: 0.01, z: 0.01}, 0.2);
+    this.standingBlock = landedBlock;
+
+    const prevIdx = this.blocks.indexOf(landedBlock) - 1;
+    const prevBlock = prevIdx >= 0 ? this.blocks[prevIdx] : null;
+    if (prevBlock && prevBlock.isCollapsing && !prevBlock.hasCollapsed) {
+        prevBlock.hasCollapsed = true;
+        CustomAnimation.to(prevBlock.instance.scale, {x: 0.01, y: 0.01, z: 0.01}, 0.2);
     }
 
     if (this.activeCollapsingBlock && this.activeCollapsingBlock.hasCollapsed === false) {
@@ -364,7 +455,22 @@ export default class GamePage {
     }
     this.activeCollapsingBlock = null;
 
-    this.generateNextBlock()
+    // ✨【Fever 循环链】：时序优化
+    if (this.isFeverMode) {
+        if (this.feverJumpsLeft === 5) {
+            // 给足 500ms，让系统瞬间生成的 5 个方块完全稳稳落地
+            setTimeout(() => { this.executeAutoJump(); }, 500); 
+        } else if (this.feverJumpsLeft > 0) {
+            // 中间跳跃间隙延长到 300ms，让画面干净清爽，不再鬼畜
+            setTimeout(() => { this.executeAutoJump(); }, 300); 
+        } else {
+            this.isFeverMode = false;
+            this.generateNextBlock();
+        }
+    } else {
+        this.generateNextBlock();
+    }
+
     this.updateCamera()
     this.startBonusTimer(landedBlock) 
   }
@@ -389,7 +495,8 @@ export default class GamePage {
     if (this.bonusTimer) { clearTimeout(this.bonusTimer); this.bonusTimer = null }
   }
 
-  generateNextBlock() {
+  // ✨【生成引擎修复】：安全隔离参数
+  generateNextBlock(isFeverSpawn = false) {
     const lastBlock = this.blocks[this.blocks.length - 1]
   
     let t
@@ -443,25 +550,43 @@ export default class GamePage {
     let isIce = false;
     let isCollapsing = false;
     let isMirage = false;
+    let spawnFever = false;
 
-    if (gameModel.combo >= 3) {
+    // ✨ 如果是系统代打生成的保底方块，跳过所有概率判定，纯净生成普通的方块
+    if (isFeverSpawn) {
+        // 什么都不用做，保持 default 外观和无毒属性
+    } else if (gameModel.combo >= 3 && !this.isFeverMode) {
+        // 子弹时间降速奖励
         isMoving = true;
         newBlock.isMoving = true;
         newBlock.moveAxis = isXDirection ? 'z' : 'x';
         newBlock.moveSpeed = 0.001; 
         newBlock.moveRange = 4;
         newBlock.moveOffset = 0;
-        
         const buffMat = new THREE.MeshStandardMaterial({ color: 0xF3E5AB, roughness: 0.85, metalness: 0 }); 
         newBlock.instance.traverse(c => { if (c.isMesh) c.material = buffMat; });
-
     } else {
         const difficultyScale = Math.min((this.stepCount - 10) / 100, 0.4); 
         
+        // ✨ 全局 5% 惊喜概率
+        if (this.stepCount > 10 && !this.isFeverMode && Math.random() < 0.05) {
+            spawnFever = true;
+        }
+
         if (this.stepCount > 8)  isMoving = Math.random() < (0.25 + difficultyScale * 0.5); 
         if (this.stepCount > 15) isIce = Math.random() < (0.20 + difficultyScale * 0.5);    
         if (this.stepCount > 20) isCollapsing = Math.random() < (0.15 + difficultyScale * 0.4); 
         if (this.stepCount > 25) isMirage = Math.random() < (0.15 + difficultyScale * 0.4); 
+
+        if (spawnFever) {
+            newBlock.hasFeverItem = true;
+            const orbGeom = new THREE.OctahedronGeometry(1.8, 0); 
+            const orbMat = new THREE.MeshBasicMaterial({ color: 0xFFEAA7, wireframe: false }); 
+            const orb = new THREE.Mesh(orbGeom, orbMat);
+            orb.position.y = blockConf.height / 2 + 3;
+            newBlock.feverOrb = orb;
+            newBlock.instance.add(orb);
+        }
 
         if (isMoving) {
             newBlock.isMoving = true;
@@ -502,7 +627,6 @@ export default class GamePage {
         
         if (isMirage) {
             newBlock.isMirage = true;
-            // ✨【优化2：完全独立的呼吸相】：0 ~ 2π 完全打散所有格子的隐身频率
             newBlock.mirageOffset = Math.random() * Math.PI * 2; 
             newBlock.instance.traverse(c => {
                 if (c.isMesh && c.material) {
@@ -528,17 +652,20 @@ export default class GamePage {
     const frustumSize = 10 
     const aspect = window.innerHeight / window.innerWidth
   
-    const visibleWidth = frustumSize
-    const visibleHeight = frustumSize * aspect
+    const visibleWidth = frustumSize / cam.zoom; 
+    const visibleHeight = (frustumSize * aspect) / cam.zoom;
   
     const camX = cam.position.x
     const camZ = cam.position.z
   
-    this.blocks = this.blocks.filter(block => {
+    this.blocks = this.blocks.filter((block, index) => {
+      // ✨ 保障一口气生成的 5 个方块绝对不会被内存回收掉
+      if (index >= this.blocks.length - 10) return true;
+
       const pos = block.instance.position
       const inView =
-        Math.abs(pos.x - camX) < visibleWidth * 1.5 &&
-        Math.abs(pos.z - camZ) < visibleHeight * 1.5
+        Math.abs(pos.x - camX) < visibleWidth * 2.5 &&
+        Math.abs(pos.z - camZ) < visibleHeight * 2.5
   
       if (!inView) {
         this.scene.instance.remove(block.instance)
@@ -550,15 +677,19 @@ export default class GamePage {
   }
 
   updateCamera() {
-    const lastBlock = this.blocks[this.blocks.length - 1] 
-    const currentBlock = this.blocks[this.blocks.length - 2] 
+    const currentIdx = this.blocks.indexOf(this.standingBlock)
+    if (currentIdx < 0) return
+    const currentBlock = this.blocks[currentIdx]
+    const nextBlock = this.blocks[currentIdx + 1] 
     
-    const lastX = (lastBlock && lastBlock.baseX !== undefined) ? lastBlock.baseX : (lastBlock ? lastBlock.instance.position.x : 0);
-    const lastZ = (lastBlock && lastBlock.baseZ !== undefined) ? lastBlock.baseZ : (lastBlock ? lastBlock.instance.position.z : 0);
-    const currX = (currentBlock && currentBlock.baseX !== undefined) ? currentBlock.baseX : (currentBlock ? currentBlock.instance.position.x : 0);
-    const currZ = (currentBlock && currentBlock.baseZ !== undefined) ? currentBlock.baseZ : (currentBlock ? currentBlock.instance.position.z : 0);
-    const lastY = lastBlock ? (lastBlock.instance.position.y - 15) : 0;
-    const currY = currentBlock ? currentBlock.instance.position.y : 0;
+    if (!currentBlock || !nextBlock) return
+    
+    const lastX = currentBlock.baseX !== undefined ? currentBlock.baseX : currentBlock.instance.position.x;
+    const lastZ = currentBlock.baseZ !== undefined ? currentBlock.baseZ : currentBlock.instance.position.z;
+    const currX = nextBlock.baseX !== undefined ? nextBlock.baseX : nextBlock.instance.position.x;
+    const currZ = nextBlock.baseZ !== undefined ? nextBlock.baseZ : nextBlock.instance.position.z;
+    const lastY = currentBlock.instance.position.y;
+    const currY = nextBlock.instance.position.y;
 
     const targetPosition = new THREE.Vector3(
       (lastX + currX) / 2 || 0,
@@ -573,11 +704,11 @@ export default class GamePage {
     
     let targetZoom = 1.0;
     if (gameModel.getStage() === 'game-page' && !this.isGameOver) {
-        targetZoom = 0.80; 
+        targetZoom = this.isFeverMode ? 0.50 : 0.80; 
     }
 
     if (camera && camera.instance && Math.abs(camera.instance.zoom - targetZoom) > 0.001) {
-        camera.instance.zoom += (targetZoom - camera.instance.zoom) * 0.08;
+        camera.instance.zoom += (targetZoom - camera.instance.zoom) * (this.isFeverMode ? 0.20 : 0.08);
         camera.instance.updateProjectionMatrix();
     }
 
@@ -585,12 +716,13 @@ export default class GamePage {
     const dt = (now - this.lastFrameTime) / 1000;
     this.lastFrameTime = now;
     
-    let currentStandingBlock = this.blocks[this.blocks.length - 2];
-    if (this.isSliding) {
-        currentStandingBlock = this.blocks[this.blocks.length - 1];
+    const currentIdx = this.blocks.indexOf(this.standingBlock);
+    let currentStandingBlock = this.blocks[currentIdx];
+    if (this.isSliding && this.blocks[currentIdx + 1]) {
+        currentStandingBlock = this.blocks[currentIdx + 1];
     }
 
-    if (!this.isGameOver && currentStandingBlock && currentStandingBlock.isCollapsing && !currentStandingBlock.triggeredCollapse && this.bottle.status === 'stop') {
+    if (!this.isGameOver && currentStandingBlock && currentStandingBlock.isCollapsing && !currentStandingBlock.triggeredCollapse && this.bottle.status === 'stop' && !this.isFeverMode) {
         currentStandingBlock.triggeredCollapse = true;
         this.activeCollapsingBlock = currentStandingBlock;
     }
@@ -651,15 +783,19 @@ export default class GamePage {
           if (moveAxis === 'z') newVirtualZ = block.virtualPos;
       }
 
-      // ✨【优化1：幻影呼吸渲染调整为 10 秒慢速轮回】
       if (block.isMirage && !block.hasCollapsed) {
-          // PI / 10 意味着走完 0->1->0 的平方正弦波正好需要 10 秒钟
           const opacity = Math.pow(Math.sin((now / 1000) * (Math.PI / 10) + block.mirageOffset), 2);
           block.instance.traverse(c => {
               if (c.isMesh && c.material) {
                   c.material.opacity = opacity;
               }
           });
+      }
+
+      if (block.hasFeverItem && block.feverOrb && !block.hasCollapsed) {
+          block.feverOrb.rotation.y += 0.05;
+          block.feverOrb.rotation.z += 0.02;
+          block.feverOrb.position.y = (blockConf.height / 2) + 3 + Math.sin(now * 0.005) * 0.5;
       }
 
       if (!block.hasCollapsed) {

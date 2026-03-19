@@ -13,11 +13,11 @@ import scoreText3d from '../objects/score-text-3d'
 import { CustomAnimation } from '../../libs/animation' 
 import particle from '../objects/particle' 
 
-// ✨【触觉引擎升级】：引入微信原生 heavy(重震)、medium(中震)、light(轻震)
+// 安全调用微信震动 API
 const safeVibrate = (type) => {
   try {
     if (type === 'long') wx.vibrateLong()
-    else wx.vibrateShort({ type: type }) 
+    else wx.vibrateShort({ type: type })
   } catch (e) {}
 }
 
@@ -34,7 +34,7 @@ export default class GamePage {
     
     this.lastFrameTime = Date.now()
     this.activeCollapsingBlock = null 
-    this.lastVibrateTime = 0 
+    this.lastVibrateTime = 0 // 用于动态控制心跳震动的频率
   }
 
   init() {
@@ -48,6 +48,8 @@ export default class GamePage {
 
     scoreText.init() 
     gameModel.scoreChanged.attach((sender, args) => { scoreText.updateScore(args.score) })
+    
+    // ✨ 彻底移除了导致画面冻结的 Canvas UI 渲染引擎，全靠物理和震动反馈！
 
     this.resetGame()
     this.bindTouchEvent()
@@ -69,6 +71,7 @@ export default class GamePage {
     })
     this.blocks = []
     
+    // 治愈系薄荷青大背景
     this.scene.background.setTargetColor('#81C9B5')
 
     const initWidth = 18
@@ -99,7 +102,7 @@ export default class GamePage {
       if (gameModel.getStage() !== 'game-page' || this.isGameOver || this.isSliding) return 
       this.clearBonusTimer() 
       
-      safeVibrate('light') 
+      safeVibrate('light') // 蓄力微震
 
       this.touchStartTime = Date.now()
       const nextBlock = this.blocks[this.blocks.length - 1]
@@ -173,6 +176,7 @@ export default class GamePage {
     const dxCurr = bottlePos.x - realCurrX;
     const dzCurr = bottlePos.z - realCurrZ;
 
+    // ✨ 安全穿透检测，如果塌陷了直接算没踩中
     const hitNext = this._checkStrictHit(nextBlock, dxNext, dzNext) && !nextBlock.hasCollapsed;
     const hitCurr = this._checkStrictHit(currentBlock, dxCurr, dzCurr) && !currentBlock.hasCollapsed;
     const distanceToNextCenter = Math.sqrt(dxNext * dxNext + dzNext * dzNext)
@@ -231,6 +235,7 @@ export default class GamePage {
         setTimeout(() => {
             this.isSliding = false;
             if (willFall || nextBlock.hasCollapsed) {
+                // ✨【核心修复】：滑行失败时完美传入 dxCurr 和 dzCurr，告别 ReferenceError 卡死！
                 const finalDxNext = this.bottle.obj.position.x - realNextX;
                 const finalDzNext = this.bottle.obj.position.z - realNextZ;
                 const finalDxCurr = this.bottle.obj.position.x - realCurrX;
@@ -255,6 +260,7 @@ export default class GamePage {
       particle.createDust(this.scene.instance, this.bottle.obj.position)
       this.startBonusTimer(currentBlock) 
     } else {
+      // ✨【核心修复】：正常跳跃失败时，完美传入完整的参数组合！
       this.handleFall(currentBlock, nextBlock, dxNext, dzNext, dxCurr, dzCurr, hitNext, hitCurr, distanceToNextCenter);
     }
   }
@@ -267,39 +273,26 @@ export default class GamePage {
     let baseScore = Math.max(1, Math.floor(blockDistance / 5)) 
     let finalScore = baseScore
 
-    let isPerfect = (!wasSliding && distanceToNextCenter < CENTER_RADIUS);
-
-    if (isPerfect) {
+    if (!wasSliding && distanceToNextCenter < CENTER_RADIUS) {
       finalScore = baseScore * 2
       gameModel.combo += 1
       const comboName = `combo${Math.min(gameModel.combo, 8)}`
       audioManager.play(comboName)
       wave.createWave(this.scene.instance, nextBlock.instance.position)
+      safeVibrate('medium') 
     } else {
       gameModel.combo = 0
       audioManager.play('success') 
-    }
-
-    // ==========================================
-    // ✨【触觉增强】：完美区分不同降落材质的手感！
-    // ==========================================
-    if (nextBlock.isCollapsing) {
-      // 跳上脆弱的塌陷方块时，给予最强烈的“重震 (heavy)”，提示危险降临！
-      safeVibrate('heavy'); 
-    } else if (isPerfect) {
-      safeVibrate('medium'); 
-    } else {
-      safeVibrate('light'); 
+      safeVibrate('light') 
     }
 
     gameModel.addScore(finalScore)
     scoreText3d.showScore(this.scene.instance, finalScore, nextBlock.instance.position)
     particle.createDust(this.scene.instance, this.bottle.obj.position)
-    
-    // 传递 currentBlock 以便执行过河拆桥
-    this.successJump(currentBlock, nextBlock)
+    this.successJump(nextBlock)
   }
 
+  // ✨【Bug杀手】：完善的方法参数列表
   handleFall(currentBlock, nextBlock, dxNext, dzNext, dxCurr, dzCurr, hitNext, hitCurr, distanceToNextCenter) {
     this.isGameOver = true
     this.activeCollapsingBlock = null; 
@@ -322,23 +315,16 @@ export default class GamePage {
     setTimeout(() => { if (this.callbacks && this.callbacks.showGameOverPage) this.callbacks.showGameOverPage() }, 1500)
   }
 
-  // ✨【过河拆桥】：接收上一块石头，用于离足销毁
-  successJump(currentBlock, landedBlock) {
+  successJump(landedBlock) {
     this.stepCount++   
     
-    // ==========================================
-    // ✨【原点消失】：只要跳离了塌陷格子，它立刻化为齑粉！
-    // ==========================================
-    if (currentBlock && currentBlock.isCollapsing && !currentBlock.hasCollapsed) {
-        currentBlock.hasCollapsed = true;
-        // 0.2秒内极速萎缩消失，深藏功与名
-        CustomAnimation.to(currentBlock.instance.scale, {x: 0.01, y: 0.01, z: 0.01}, 0.2);
+    // ✨【过河拆桥】：如果跳离了前一个正在塌陷的格子，它直接原地消失！
+    const prevBlock = this.blocks[this.blocks.length - 3];
+    if (prevBlock && prevBlock.isCollapsing && !prevBlock.hasCollapsed) {
+        prevBlock.hasCollapsed = true;
+        CustomAnimation.to(prevBlock.instance.scale, {x: 0.01, y: 0.01, z: 0.01}, 0.2);
     }
 
-    if (this.activeCollapsingBlock && this.activeCollapsingBlock.hasCollapsed === false) {
-        this.activeCollapsingBlock.shakeOffsetX = 0;
-        this.activeCollapsingBlock.shakeOffsetZ = 0;
-    }
     this.activeCollapsingBlock = null;
 
     this.generateNextBlock()
@@ -421,6 +407,7 @@ export default class GamePage {
     let isCollapsing = false;
 
     if (gameModel.combo >= 3) {
+        // 子弹时间降速奖励
         isMoving = true;
         newBlock.isMoving = true;
         newBlock.moveAxis = isXDirection ? 'z' : 'x';
@@ -440,9 +427,9 @@ export default class GamePage {
             else if (rand < 0.65) { isCollapsing = true; }
             else if (rand < 0.80) { isIce = true; }
             else { isMoving = true; }
-        } else if (this.stepCount > 2) {
+        } else if (this.stepCount > 15) {
             const rand = Math.random();
-            if (rand < 0.85) { isCollapsing = true; } 
+            if (rand < 0.15) { isCollapsing = true; } 
             else if (rand < 0.35) { isIce = true; }
             else if (rand < 0.60) { isMoving = true; }
         } else if (this.stepCount > 8) {
@@ -459,6 +446,7 @@ export default class GamePage {
         }
 
         if (isCollapsing) {
+            // ✨ 完美伪装，绝对隐藏的倒计时陷阱
             newBlock.isCollapsing = true;
             newBlock.collapseTimeLeft = 10; 
             newBlock.triggeredCollapse = false;
@@ -528,6 +516,7 @@ export default class GamePage {
     const lastBlock = this.blocks[this.blocks.length - 1] 
     const currentBlock = this.blocks[this.blocks.length - 2] 
     
+    // 防 NaN 崩溃机制
     const lastX = (lastBlock && lastBlock.baseX !== undefined) ? lastBlock.baseX : (lastBlock ? lastBlock.instance.position.x : 0);
     const lastZ = (lastBlock && lastBlock.baseZ !== undefined) ? lastBlock.baseZ : (lastBlock ? lastBlock.instance.position.z : 0);
     const currX = (currentBlock && currentBlock.baseX !== undefined) ? currentBlock.baseX : (currentBlock ? currentBlock.instance.position.x : 0);
@@ -565,53 +554,57 @@ export default class GamePage {
         currentStandingBlock = this.blocks[this.blocks.length - 1];
     }
 
+    // ✨【触发塌陷危机】：落地瞬间激活陷阱
     if (!this.isGameOver && currentStandingBlock && currentStandingBlock.isCollapsing && !currentStandingBlock.triggeredCollapse && this.bottle.status === 'stop') {
         currentStandingBlock.triggeredCollapse = true;
         this.activeCollapsingBlock = currentStandingBlock;
     }
 
+    // ✨【死亡心跳引擎】：全靠物理震颤反馈
     if (this.activeCollapsingBlock && !this.activeCollapsingBlock.hasCollapsed && !this.isGameOver) {
         const block = this.activeCollapsingBlock;
         block.collapseTimeLeft -= dt;
 
         if (block.collapseTimeLeft > 0) {
+            // 进度 0（稳） 到 1（炸）
             const progress = 1 - Math.max(0, block.collapseTimeLeft / 10);
             
+            // 1. 狂暴物理抖动：先是极其轻微的颤动，最后疯狂筛糠
             const intensity = Math.pow(progress, 3) * 1.5 + 0.05; 
             block.shakeOffsetX = (Math.random() - 0.5) * intensity;
             block.shakeOffsetZ = (Math.random() - 0.5) * intensity;
 
-            // ==========================================
-            // ✨【死亡心跳增强】：引入 heavy 剧烈震动
-            // 越到后面，震动越强、频率越快，压迫感拉满！
-            // ==========================================
+            // 2. “死亡心跳”：动态间距的高低频震动
             if (this.bottle.status === 'stop' || this.bottle.status === 'prepare') {
-                const vibrateInterval = 800 - (progress * 700); 
+                const vibrateInterval = 1000 - (progress * 900); // 震动间隔从 1000ms 缩短到 100ms
                 if (now - this.lastVibrateTime > vibrateInterval) {
-                    safeVibrate(progress > 0.6 ? 'heavy' : 'medium'); // 后期剧烈抖动时，使用 heavy 重震
+                    safeVibrate(progress > 0.8 ? 'medium' : 'light');
                     this.lastVibrateTime = now;
                 }
             }
         } else {
+            // 💀 瞬间碎裂，碰撞箱失效！
             block.hasCollapsed = true;
             CustomAnimation.to(block.instance.scale, {x: 0.01, y: 0.01, z: 0.01}, 0.2);
             
             if (!this.isGameOver && (this.bottle.status === 'stop' || this.bottle.status === 'prepare')) {
                 this.isGameOver = true;
                 audioManager.play('fall');
-                safeVibrate('long'); 
+                safeVibrate('long'); // 死亡长鸣
                 this.bottle.fall('straight'); 
                 setTimeout(() => { if (this.callbacks && this.callbacks.showGameOverPage) this.callbacks.showGameOverPage() }, 1500);
             }
         }
     }
 
+    // ✨【完美物理坐标融合】：火柴人精准吸附
     this.blocks.forEach(block => {
       let deltaX = 0;
       let deltaZ = 0;
       const prevX = block.instance.position.x;
       const prevZ = block.instance.position.z;
 
+      // 提取抖动偏移
       let shakeX = 0;
       let shakeZ = 0;
       if (block.isCollapsing && block.triggeredCollapse && !block.hasCollapsed) {
@@ -622,6 +615,7 @@ export default class GamePage {
       let newVirtualX = block.baseX;
       let newVirtualZ = block.baseZ;
 
+      // 移动机制
       if (block.isMoving && !block.hasCollapsed) {
           const moveAxis = block.moveAxis;
           const basePos = moveAxis === 'x' ? block.baseX : block.baseZ;
@@ -630,6 +624,7 @@ export default class GamePage {
           if (moveAxis === 'z') newVirtualZ = block.virtualPos;
       }
 
+      // 计算并应用真实现实坐标
       if (!block.hasCollapsed) {
           block.instance.position.x = newVirtualX + shakeX;
           block.instance.position.z = newVirtualZ + shakeZ;
@@ -637,6 +632,7 @@ export default class GamePage {
           deltaX = block.instance.position.x - prevX;
           deltaZ = block.instance.position.z - prevZ;
 
+          // 火柴人万能吸附（无论是移动还是发抖，都完美跟随）
           if (block === currentStandingBlock && this.bottle && (this.bottle.status === 'stop' || this.bottle.status === 'prepare') && !this.isSliding) {
               this.bottle.obj.position.x += deltaX;
               this.bottle.obj.position.z += deltaZ;

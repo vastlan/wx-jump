@@ -3,20 +3,27 @@ import { camera } from '../scene/index'
 import gameModel from '../game/model'
 import sceneConf from '../../confs/scene-conf' 
 
+// ✨ 核心修复：采用全平台绝对兼容的系统级最高级字体栈，杜绝在 Android/iOS 上降级变形
+const systemFont = `"-apple-system", BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "STHeiti", "Microsoft YaHei", Tahoma, Arial, sans-serif`;
+
+const INK_COLOR = '#2A2A2A'; // 暖黑色墨水
+const PAPER_COLOR = '#FDF9F1'; // 暖白纸张底色
+
 export default class StartPage {
   constructor(callbacks) {
     this.callbacks = callbacks
     this.isVisible = false
     this.hasBoundTouch = false
-    
-    this.images = {}
-    this.loadedCount = 0
 
     this.sysInfo = typeof wx !== 'undefined' ? wx.getSystemInfoSync() : { windowWidth: window.innerWidth, windowHeight: window.innerHeight }
     this.width = this.sysInfo.windowWidth
     this.height = this.sysInfo.windowHeight
 
-    this.playBtnHitbox = { x: 0, y: 0, w: 0, h: 0 }
+    this.hitboxes = {
+        play: { x: 0, y: 0, w: 0, h: 0 },
+        rank: { x: 0, y: 0, w: 0, h: 0 },
+        store: { x: 0, y: 0, w: 0, h: 0 }
+    }
   }
 
   init(options) {
@@ -39,95 +46,128 @@ export default class StartPage {
 
     this.instance.scale.set(camWidth, camHeight, 1)
     this.instance.position.set(0, camCenterY, -10) 
-    
     this.instance.renderOrder = 200     
     this.instance.visible = false
     
     camera.instance.add(this.instance)
 
-    this.loadImages()
+    this.draw()
     this.bindTouchEvent()
   }
 
-  loadImages() {
-    const assets = {
-      title: 'res/images/title.png',
-      play: 'res/images/play.png',   
-      rank: 'res/images/rank.png'    
-    }
-    const keys = Object.keys(assets)
+  // 漫画风矩形绘制器 (带偏移硬底阴影 + 粗描边)
+  drawSketchBox(ctx, x, y, w, h, radius) {
+    // 1. 硬质手绘阴影 (绝对偏移 4px)
+    ctx.fillStyle = INK_COLOR;
+    this.roundRect(ctx, x + 4, y + 4, w, h, radius);
+    ctx.fill();
 
-    keys.forEach(key => {
-      const img = typeof wx !== 'undefined' ? wx.createImage() : new Image()
-      img.src = assets[key]
-      img.onload = () => {
-        this.images[key] = img
-        this.loadedCount++
-        if (this.loadedCount === keys.length && this.isVisible) {
-          this.draw()
-        }
-      }
-    })
+    // 2. 纸张底色填充
+    ctx.fillStyle = PAPER_COLOR;
+    this.roundRect(ctx, x, y, w, h, radius);
+    ctx.fill();
+
+    // 3. 粗黑线条描边
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = INK_COLOR;
+    ctx.stroke();
+  }
+
+  roundRect(ctx, x, y, width, height, radius) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
   }
 
   draw() {
     this.ctx.clearRect(0, 0, this.width, this.height)
     
-    // 沉浸式全屏遮罩
-    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'
+    // 半透明治愈系暖白遮罩，透出背后 3D 世界
+    this.ctx.fillStyle = 'rgba(253, 249, 241, 0.85)'
     this.ctx.fillRect(0, 0, this.width, this.height)
 
-    if (this.loadedCount < 3) {
-      this.texture.needsUpdate = true
-      return
-    }
-
-    // 屏幕中心线 X 坐标
     const cx = this.width / 2
 
-    // 1. 绘制“跳一跳” Logo
-    const titleImg = this.images.title
-    const titleW = this.width * 0.65 
-    const titleH = (titleImg.height / titleImg.width) * titleW 
-    const titleY = this.height * 0.18 
-    this.ctx.drawImage(titleImg, cx - titleW / 2, titleY, titleW, titleH)
+    // ==========================================
+    // ✨ 1. 手机端原生自适应 Logo 渲染器
+    // ==========================================
+    const titleText = '省一跳';
+    const titleFontSize = Math.floor(this.width * 0.16); // 稍微缩减基准字号，防止粗描边撑爆
+    const titleY = this.height * 0.22;
 
-    // 2. 绘制历史最高分
-    this.ctx.fillStyle = '#ffffff'
-    const fontSize = Math.max(16, Math.floor(this.width * 0.05))
-    this.ctx.font = `bold ${fontSize}px Arial`
-    this.ctx.textAlign = 'center'
-    this.ctx.fillText(`历史最高分: ${gameModel.highestScore}`, cx, titleY + titleH + fontSize * 2.5)
-
-    // 3. 视觉微调：绘制“开始游戏”超大 Play 按钮（放大占比）
-    const playImg = this.images.play
-    const playW = this.width * 0.48 // 将尺寸从 40% 放大到 48%
-    const playH = (playImg.height / playImg.width) * playW
-    const playY = this.height * 0.52 // 稍微往上提一点，给下方的排行榜留空间
-    this.ctx.drawImage(playImg, cx - playW / 2, playY, playW, playH)
-
-    this.playBtnHitbox = {
-      x: cx - playW / 2,
-      y: playY,
-      w: playW,
-      h: playH
-    }
-
-    // 4. 视觉微调：绘制“排行榜”图标（按比例缩小，并严格居中对齐）
-    const rankImg = this.images.rank
-    const rankW = this.width * 0.13 // 相比 playW 显得小巧精致
-    const rankH = (rankImg.height / rankImg.width) * rankW
+    // 强制使用系统最粗字重 900
+    this.ctx.font = `900 ${titleFontSize}px ${systemFont}`;
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
     
-    // 将排行榜移到屏幕正中央，位于 Play 按钮下方
-    const rankX = cx - rankW / 2
-    const rankY = playY + playH + this.height * 0.05 // 距离 Play 底部 5% 屏高
-    this.ctx.drawImage(rankImg, rankX, rankY, rankW, rankH)
+    // 强制圆润拐角，防止在 Android 上产生尖锐毛刺
+    this.ctx.lineJoin = 'round';
+    this.ctx.lineCap = 'round';
+    this.ctx.miterLimit = 2; 
+
+    // A. 绘制深色硬实立体阴影 (比例精调)
+    const shadowOffset = Math.max(3, Math.floor(this.width * 0.012));
+    this.ctx.lineWidth = titleFontSize * 0.12; // 调整描边厚度，防止糊字
+    this.ctx.strokeStyle = INK_COLOR;
+    this.ctx.fillStyle = INK_COLOR;
+    this.ctx.strokeText(titleText, cx + shadowOffset, titleY + shadowOffset);
+    this.ctx.fillText(titleText, cx + shadowOffset, titleY + shadowOffset);
+
+    // B. 绘制前景纯白粗边框 (形成贴纸底色垫片)
+    this.ctx.lineWidth = titleFontSize * 0.08; // 保证白边比黑阴影细一圈，层次分明
+    this.ctx.strokeStyle = '#FFFFFF'; 
+    this.ctx.strokeText(titleText, cx, titleY);
+
+    // C. 绘制前景墨色内核
+    this.ctx.fillStyle = INK_COLOR;
+    this.ctx.fillText(titleText, cx, titleY);
+    // ==========================================
+
+    // 2. 历史最高分 (使用统一的系统字体)
+    this.ctx.fillStyle = '#888888';
+    const scoreFontSize = Math.max(14, Math.floor(this.width * 0.042));
+    this.ctx.font = `bold ${scoreFontSize}px ${systemFont}`;
+    this.ctx.fillText(`最高记录: ${gameModel.highestScore}`, cx, titleY + titleFontSize * 1.2);
+
+    // 3. 漫画风主按钮：开始游戏
+    const playW = this.width * 0.55;
+    const playH = this.height * 0.075;
+    const playY = this.height * 0.54;
+    const playX = cx - playW / 2;
+
+    this.drawSketchBox(this.ctx, playX, playY, playW, playH, playH / 2);
+
+    this.ctx.fillStyle = INK_COLOR; 
+    this.ctx.font = `bold ${Math.floor(this.width * 0.055)}px ${systemFont}`;
+    this.ctx.fillText('开始游戏', cx, playY + playH / 2);
+    this.hitboxes.play = { x: playX, y: playY, w: playW, h: playH }
+
+    // 4. 漫画风副按钮矩阵
+    const subBtnW = this.width * 0.25;
+    const subBtnH = this.height * 0.06;
+    const subBtnY = playY + playH + this.height * 0.035;
     
-    // 排行榜文字严格居中
-    this.ctx.fillStyle = '#e0e0e0'
-    this.ctx.font = `${Math.floor(this.width * 0.035)}px Arial`
-    this.ctx.textAlign = 'center'
-    this.ctx.fillText('排行榜', cx, rankY + rankH + fontSize * 1.2)
+    const storeX = playX;
+    const rankX = playX + playW - subBtnW;
+
+    this.drawSketchBox(this.ctx, storeX, subBtnY, subBtnW, subBtnH, subBtnH / 2);
+    this.drawSketchBox(this.ctx, rankX, subBtnY, subBtnW, subBtnH, subBtnH / 2);
+
+    this.ctx.fillStyle = INK_COLOR;
+    this.ctx.font = `bold ${Math.floor(this.width * 0.04)}px ${systemFont}`;
+    this.ctx.fillText('商城', storeX + subBtnW / 2, subBtnY + subBtnH / 2);
+    this.ctx.fillText('排行榜', rankX + subBtnW / 2, subBtnY + subBtnH / 2);
+
+    this.hitboxes.store = { x: storeX, y: subBtnY, w: subBtnW, h: subBtnH };
+    this.hitboxes.rank = { x: rankX, y: subBtnY, w: subBtnW, h: subBtnH };
 
     this.texture.needsUpdate = true
   }
@@ -148,20 +188,22 @@ export default class StartPage {
         clientY = e.clientY
       }
 
-      // 精准碰撞盒检测 (Hitbox)
-      const { x, y, w, h } = this.playBtnHitbox
-      const padding = 20 
+      const padding = 15 
+      const checkHit = (box) => clientX >= box.x - padding && clientX <= box.x + box.w + padding && clientY >= box.y - padding && clientY <= box.y + box.h + padding;
 
-      // 只有点击中央的超大 Play 按钮才能进入游戏
-      if (
-        clientX >= x - padding &&
-        clientX <= x + w + padding &&
-        clientY >= y - padding &&
-        clientY <= y + h + padding
-      ) {
-        if (this.callbacks && this.callbacks.gameStart) {
-          this.callbacks.gameStart()
-        }
+      if (checkHit(this.hitboxes.play)) {
+        if (this.callbacks && this.callbacks.gameStart) this.callbacks.gameStart()
+        return
+      }
+
+      if (checkHit(this.hitboxes.store)) {
+        if (this.callbacks && this.callbacks.showStore) this.callbacks.showStore()
+        return
+      }
+
+      if (checkHit(this.hitboxes.rank)) {
+        if (typeof wx !== 'undefined' && wx.showToast) wx.showToast({ title: '排行榜开发中', icon: 'none' })
+        return
       }
     }
 

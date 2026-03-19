@@ -3,14 +3,15 @@ import { camera } from '../scene/index'
 import gameModel from '../game/model'
 import sceneConf from '../../confs/scene-conf' 
 
+const comicFont = `"Comic Sans MS", "Chalkboard SE", "Marker Felt", "PingFang SC", "Microsoft YaHei", sans-serif`;
+const INK_COLOR = '#2A2A2A'; 
+const PAPER_COLOR = '#FDF9F1'; 
+
 export default class GameOverPage {
   constructor(callbacks) {
     this.callbacks = callbacks
     this.isVisible = false
     this.hasBoundTouch = false 
-
-    this.images = {}
-    this.loadedCount = 0
 
     this.sysInfo = typeof wx !== 'undefined' ? wx.getSystemInfoSync() : { windowWidth: window.innerWidth, windowHeight: window.innerHeight }
     this.width = this.sysInfo.windowWidth
@@ -18,16 +19,15 @@ export default class GameOverPage {
 
     this.hitboxes = {
       replay: { x: 0, y: 0, w: 0, h: 0 },
-      rank: { x: 0, y: 0, w: 0, h: 0 },
-      share: { x: 0, y: 0, w: 0, h: 0 }
+      share: { x: 0, y: 0, w: 0, h: 0 },
+      home: { x: 0, y: 0, w: 0, h: 0 },
+      store: { x: 0, y: 0, w: 0, h: 0 },
+      rank: { x: 0, y: 0, w: 0, h: 0 }
     }
-
-    this.animFrame = null
-    this.animTime = 0
   }
 
-  init(options) {
-    this.scene = options.scene
+  init(options = {}) {
+    this.scene = options.scene || null
     
     this.canvas = typeof wx !== 'undefined' ? wx.createCanvas() : document.createElement('canvas')
     this.canvas.width = this.width
@@ -50,142 +50,104 @@ export default class GameOverPage {
     this.instance.visible = false
     
     camera.instance.add(this.instance)
-
-    this.loadImages()
     this.bindTouchEvent()
   }
 
-  loadImages() {
-    const assets = {
-      replay: 'res/images/replay.png', 
-      rank: 'res/images/rank.png',      
-      share: 'res/images/pure_share.png' 
-    }
-    const keys = Object.keys(assets)
+  drawSketchBox(ctx, x, y, w, h, radius) {
+    ctx.fillStyle = INK_COLOR;
+    this.roundRect(ctx, x + 4, y + 4, w, h, radius);
+    ctx.fill();
 
-    keys.forEach(key => {
-      const img = typeof wx !== 'undefined' ? wx.createImage() : new Image()
-      img.src = assets[key]
-      img.onload = () => {
-        this.images[key] = img
-        this.loadedCount++
-      }
-    })
+    ctx.fillStyle = PAPER_COLOR;
+    this.roundRect(ctx, x, y, w, h, radius);
+    ctx.fill();
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = INK_COLOR;
+    ctx.stroke();
   }
 
-  animate() {
-    if (!this.isVisible) return
-    
-    this.animTime += 0.06 
-    this.draw() 
-    
-    const reqAnim = typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame : setTimeout
-    this.animFrame = reqAnim(this.animate.bind(this), 16)
+  roundRect(ctx, x, y, width, height, radius) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
   }
 
   draw() {
     this.ctx.clearRect(0, 0, this.width, this.height)
     
-    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.65)'
+    this.ctx.fillStyle = 'rgba(253, 249, 241, 0.90)'
     this.ctx.fillRect(0, 0, this.width, this.height)
-    
-    if (this.loadedCount < 3) {
-      this.texture.needsUpdate = true
-      return
-    }
 
     const cx = this.width / 2
 
-    // 1. 顶部得分信息
-    this.ctx.fillStyle = '#cccccc'
-    this.ctx.font = `${Math.floor(this.width * 0.05)}px "Helvetica Neue", Helvetica, Arial, sans-serif`
+    this.ctx.fillStyle = INK_COLOR
+    this.ctx.font = `bold ${Math.floor(this.width * 0.05)}px ${comicFont}`
     this.ctx.textAlign = 'center'
     this.ctx.textBaseline = 'middle'
-    this.ctx.fillText('本次得分', cx, this.height * 0.14)
+    this.ctx.fillText('本次得分', cx, this.height * 0.15)
 
-    this.ctx.fillStyle = '#ffffff'
-    const scoreFontSize = Math.floor(this.width * 0.28) 
-    this.ctx.font = `bold ${scoreFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`
-    this.ctx.fillText(gameModel.score.toString(), cx, this.height * 0.26)
+    const scoreFontSize = Math.floor(this.width * 0.30) 
+    this.ctx.font = `bold ${scoreFontSize}px ${comicFont}`
+    this.ctx.fillText(gameModel.score.toString(), cx, this.height * 0.28)
 
     this.ctx.fillStyle = '#888888' 
-    const highScoreFontSize = Math.floor(this.width * 0.04)
-    this.ctx.font = `${highScoreFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`
-    this.ctx.fillText(`历史最高分: ${gameModel.highestScore}`, cx, this.height * 0.38)
+    const highScoreFontSize = Math.floor(this.width * 0.045)
+    this.ctx.font = `${highScoreFontSize}px ${comicFont}`
+    this.ctx.fillText(`最高记录: ${gameModel.highestScore}`, cx, this.height * 0.40)
 
-    // ========================================================
-    // 核心重构：垂直居中布局 (Vertical Stack)
-    // ========================================================
-    const baseWidth = this.width * 0.55 // 确立“再玩一局”和“分享”的统一宽度标准 (屏宽55%)
-    const gap = this.height * 0.035     // 垂直间距
+    const baseWidth = this.width * 0.60 
+    const btnHeight = this.height * 0.075     
+    const gap = this.height * 0.035     
+    const baseX = cx - baseWidth / 2;
 
-    // 2. 顶部：“再来一局”按钮（纯图片）
-    const replayImg = this.images.replay
-    const replayW = baseWidth
-    // 核心算法：读取原图宽高比，动态计算高度，绝对不压扁拉伸图片！
-    const replayH = (replayImg.height / replayImg.width) * replayW 
-    const replayY = this.height * 0.46 // 放置在分数下方
-    const replayX = cx - replayW / 2
+    // ✨ 1. 再玩一局 
+    const replayY = this.height * 0.48;
+    this.drawSketchBox(this.ctx, baseX, replayY, baseWidth, btnHeight, btnHeight / 2);
+    this.ctx.fillStyle = INK_COLOR;
+    this.ctx.font = `bold ${Math.floor(this.width * 0.05)}px ${comicFont}`;
+    this.ctx.fillText('再玩一局', cx, replayY + btnHeight / 2);
+    this.hitboxes.replay = { x: baseX, y: replayY, w: baseWidth, h: btnHeight };
+
+    // ✨ 2. 分享复活
+    const shareY = replayY + btnHeight + gap;
+    this.drawSketchBox(this.ctx, baseX, shareY, baseWidth, btnHeight, btnHeight / 2);
+    this.ctx.fillStyle = INK_COLOR;
+    this.ctx.fillText('分享好友复活', cx, shareY + btnHeight / 2);
+    this.hitboxes.share = { x: baseX, y: shareY, w: baseWidth, h: btnHeight };
+
+    // ✨ 3. 底部功能矩阵 (三等分，完美对齐 baseWidth 两端！)
+    const subBtnY = shareY + btnHeight + gap * 1.5;
+    const subGap = 12; // 按钮间距
+    const subBtnW = (baseWidth - subGap * 2) / 3;
     
-    this.ctx.drawImage(replayImg, replayX, replayY, replayW, replayH)
-    this.hitboxes.replay = { x: replayX, y: replayY, w: replayW, h: replayH }
-    // 备注：根据你的要求，去除了多余的“再玩一局”文字。
+    const homeX = baseX;
+    const storeX = baseX + subBtnW + subGap;
+    const rankX = baseX + baseWidth - subBtnW;
 
-    // 3. 中部：“分享好友复活”按钮（翠绿色 + 呼吸动画）
-    const shareY = replayY + replayH + gap // 紧贴再来一局按钮下方
-    const scale = 1 + 0.05 * Math.sin(this.animTime) 
-    const baseShareH = this.width * 0.13
+    this.drawSketchBox(this.ctx, homeX, subBtnY, subBtnW, btnHeight * 0.75, (btnHeight * 0.75) / 2);
+    this.drawSketchBox(this.ctx, storeX, subBtnY, subBtnW, btnHeight * 0.75, (btnHeight * 0.75) / 2);
+    this.drawSketchBox(this.ctx, rankX, subBtnY, subBtnW, btnHeight * 0.75, (btnHeight * 0.75) / 2);
+
+    this.ctx.fillStyle = INK_COLOR;
+    this.ctx.font = `bold ${Math.floor(this.width * 0.035)}px ${comicFont}`;
+    const textY = subBtnY + (btnHeight * 0.75) / 2;
     
-    const shareW = baseWidth * scale // 宽度跟随动画呼吸
-    const shareH = baseShareH * scale
-    const shareX = cx - shareW / 2
-    const shareDrawY = shareY - (shareH - baseShareH) / 2 
-    
-    // 鲜艳诱导的圆角背景
-    this.ctx.fillStyle = '#07C160' 
-    const radius = shareH / 2
-    this.ctx.beginPath()
-    this.ctx.moveTo(shareX + radius, shareDrawY)
-    this.ctx.arcTo(shareX + shareW, shareDrawY, shareX + shareW, shareDrawY + shareH, radius)
-    this.ctx.arcTo(shareX + shareW, shareDrawY + shareH, shareX, shareDrawY + shareH, radius)
-    this.ctx.arcTo(shareX, shareDrawY + shareH, shareX, shareDrawY, radius)
-    this.ctx.arcTo(shareX, shareDrawY, shareX + shareW, shareDrawY, radius)
-    this.ctx.closePath()
-    this.ctx.fill()
+    this.ctx.fillText('首页', homeX + subBtnW / 2, textY);
+    this.ctx.fillText('商城', storeX + subBtnW / 2, textY);
+    this.ctx.fillText('排行榜', rankX + subBtnW / 2, textY);
 
-    // Icon 和文案
-    this.ctx.fillStyle = '#ffffff'
-    const shareFontSize = Math.floor(this.width * 0.045 * scale)
-    this.ctx.font = `bold ${shareFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`
-    
-    const shareIcon = this.images.share
-    const iconH = shareH * 0.45
-    const iconW = (shareIcon.width / shareIcon.height) * iconH
-    const textW = this.ctx.measureText('分享好友复活').width
-    const contentW = iconW + 10 + textW
-    const contentStartX = cx - contentW / 2
-
-    this.ctx.drawImage(shareIcon, contentStartX, shareDrawY + (shareH - iconH) / 2, iconW, iconH)
-    this.ctx.textAlign = 'left'
-    this.ctx.fillText('分享好友复活', contentStartX + iconW + 10, shareDrawY + shareH / 2)
-
-    this.hitboxes.share = { x: cx - baseWidth/2, y: shareY, w: baseWidth, h: baseShareH }
-
-    // 4. 底部：“排行榜”按钮（尺寸适中）
-    const rankImg = this.images.rank
-    const rankW = this.width * 0.1 // 尺寸明显小于上面的两个巨头，克制适中
-    const rankH = (rankImg.height / rankImg.width) * rankW
-    const rankY = shareY + baseShareH + gap + this.height * 0.02
-    const rankX = cx - rankW / 2
-    
-    this.ctx.drawImage(rankImg, rankX, rankY, rankW, rankH)
-    this.hitboxes.rank = { x: rankX, y: rankY, w: rankW, h: rankH }
-
-    // 排行榜文字
-    this.ctx.fillStyle = '#aaaaaa'
-    this.ctx.font = `${Math.floor(this.width * 0.035)}px "Helvetica Neue", Arial`
-    this.ctx.textAlign = 'center'
-    this.ctx.fillText('排行榜', cx, rankY + rankH + this.height * 0.035)
+    this.hitboxes.home = { x: homeX, y: subBtnY, w: subBtnW, h: btnHeight * 0.75 };
+    this.hitboxes.store = { x: storeX, y: subBtnY, w: subBtnW, h: btnHeight * 0.75 };
+    this.hitboxes.rank = { x: rankX, y: subBtnY, w: subBtnW, h: btnHeight * 0.75 };
 
     this.texture.needsUpdate = true
   }
@@ -206,27 +168,27 @@ export default class GameOverPage {
         clientY = e.clientY
       }
 
-      const padding = 20 
+      const padding = 15 
+      const checkHit = (box) => clientX >= box.x - padding && clientX <= box.x + box.w + padding && clientY >= box.y - padding && clientY <= box.y + box.h + padding;
 
-      const shareb = this.hitboxes.share
-      if (clientX >= shareb.x - padding && clientX <= shareb.x + shareb.w + padding && clientY >= shareb.y - padding && clientY <= shareb.y + shareb.h + padding) {
-        if (typeof wx !== 'undefined' && wx.showShareMenu) {
-            wx.showShareMenu({ withShareTicket: true }) 
-        } else if (typeof wx !== 'undefined' && wx.showToast) {
-            wx.showToast({ title: '分享成功！即将复活...', icon: 'none' })
-        }
+      if (checkHit(this.hitboxes.share)) {
+        if (typeof wx !== 'undefined' && wx.showShareMenu) wx.showShareMenu({ withShareTicket: true }) 
         return
       }
-
-      const rb = this.hitboxes.replay
-      if (clientX >= rb.x - padding && clientX <= rb.x + rb.w + padding && clientY >= rb.y - padding && clientY <= rb.y + rb.h + padding) {
+      if (checkHit(this.hitboxes.replay)) {
         if (this.callbacks && this.callbacks.gameRestart) this.callbacks.gameRestart()
         return
       }
-
-      const rankb = this.hitboxes.rank
-      if (clientX >= rankb.x - padding && clientX <= rankb.x + rankb.w + padding && clientY >= rankb.y - padding && clientY <= rankb.y + rankb.h + padding) {
-        if (typeof wx !== 'undefined' && wx.showToast) wx.showToast({ title: '查看好友排行...', icon: 'none' })
+      if (checkHit(this.hitboxes.home)) {
+        if (this.callbacks && this.callbacks.goHome) this.callbacks.goHome()
+        return
+      }
+      if (checkHit(this.hitboxes.store)) {
+        if (this.callbacks && this.callbacks.showStore) this.callbacks.showStore()
+        return
+      }
+      if (checkHit(this.hitboxes.rank)) {
+        if (typeof wx !== 'undefined' && wx.showToast) wx.showToast({ title: '排行榜开发中', icon: 'none' })
         return
       }
     }
@@ -241,15 +203,12 @@ export default class GameOverPage {
 
   show() {
     this.isVisible = true
-    this.animTime = 0
-    this.animate() 
+    this.draw() 
     this.instance.visible = true
   }
 
   hide() {
     this.isVisible = false
     this.instance.visible = false
-    const cancelAnim = typeof cancelAnimationFrame !== 'undefined' ? cancelAnimationFrame : clearTimeout
-    if (this.animFrame) cancelAnim(this.animFrame)
   }
 }

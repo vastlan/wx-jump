@@ -13,6 +13,7 @@ import scoreText3d from '../objects/score-text-3d'
 import { CustomAnimation } from '../../libs/animation' 
 import particle from '../objects/particle' 
 
+// 安全调用微信震动 API
 const safeVibrate = (type) => {
   try {
     if (type === 'long') wx.vibrateLong()
@@ -36,8 +37,6 @@ export default class GamePage {
     this.lastVibrateTime = 0 
 
     this.standingBlock = null
-
-    // Fever 模式核心控制状态
     this.isFeverMode = false
     this.feverJumpsLeft = 0
   }
@@ -161,7 +160,6 @@ export default class GamePage {
     })
   }
 
-  // ✨【Fever 物理代打引擎】
   executeAutoJump() {
       if (this.feverJumpsLeft <= 0 || this.isGameOver) {
           this.isFeverMode = false;
@@ -178,7 +176,6 @@ export default class GamePage {
       
       const nextX = nextBlock.baseX !== undefined ? nextBlock.baseX : nextBlock.instance.position.x;
       const nextZ = nextBlock.baseZ !== undefined ? nextBlock.baseZ : nextBlock.instance.position.z;
-      // 精准计算目标底盘高度
       const targetPos = new THREE.Vector3(nextX, nextBlock.instance.position.y, nextZ); 
       
       const currentY = currentBlock.instance.position.y + blockConf.height / 2;
@@ -190,7 +187,6 @@ export default class GamePage {
       const dz = targetPos.z - this.bottle.obj.position.z;
       const distance = Math.max(Math.sqrt(dx*dx + dz*dz), 0.001);
       
-      // 反推底层跳跃抛物线公式，得出命中红心所需的绝对物理毫秒数
       const pressTime = (distance / 0.01674) + 150; 
       
       this.bottle.jump(pressTime, currentY, nextY, targetPos, (isMicroStep) => {
@@ -330,7 +326,6 @@ export default class GamePage {
     let isPerfect = (!wasSliding && distanceToNextCenter < CENTER_RADIUS) || this.isFeverMode;
     let isBlindSnipe = false;
 
-    // ✨【安全锁定】：Fever 时，每一跳结束强制修正火柴人到底盘几何中心！杜绝任何浮点数偏移积累
     if (this.isFeverMode) {
         this.bottle.obj.position.x = nextBlock.baseX;
         this.bottle.obj.position.z = nextBlock.baseZ;
@@ -343,38 +338,49 @@ export default class GamePage {
         }
     }
 
+    // 取消幻影实体化
     if (nextBlock.isMirage) {
         nextBlock.isMirage = false; 
-        nextBlock.instance.traverse(c => {
-            if (c.isMesh && c.material) {
-                c.material.opacity = 1;         
-                c.material.transparent = false; 
+        if (nextBlock.mirageMaterials) {
+            for (let i = 0; i < nextBlock.mirageMaterials.length; i++) {
+                nextBlock.mirageMaterials[i].opacity = 1;
+                nextBlock.mirageMaterials[i].transparent = false;
             }
-        });
+            nextBlock.mirageMaterials = null; // 解除引用，释放内存
+        }
     }
 
-    // ✨【Fever 星星结算】：无功不受禄
+    // ✨【安全清理】：吃星星或错失星星的内存防漏释放
     if (nextBlock.hasFeverItem) {
-        nextBlock.hasFeverItem = false;
+        nextBlock.hasFeverItem = false; 
         
         if (isPerfect && !this.isFeverMode) {
-            // 完美踩中！开启暴走神罗天征
-            if (nextBlock.feverOrb) nextBlock.instance.remove(nextBlock.feverOrb); 
+            if (nextBlock.feverOrb) {
+                nextBlock.instance.remove(nextBlock.feverOrb); 
+                nextBlock.feverOrb.geometry.dispose(); // 销毁废弃数据
+                nextBlock.feverOrb.material.dispose(); // 销毁废弃数据
+                nextBlock.feverOrb = null;
+            }
             
             this.isFeverMode = true;
             this.feverJumpsLeft = 5; 
             safeVibrate('heavy');
             audioManager.play('combo8'); 
 
-            // 瞬间召唤 5 个完全安全的实体方块
             for(let i = 0; i < 5; i++) {
                 this.generateNextBlock(true);
             }
         } else if (!this.isFeverMode) {
-            // 踩偏惩罚：星星直接萎缩消失！
             if (nextBlock.feverOrb) {
                 CustomAnimation.to(nextBlock.feverOrb.scale, {x: 0.01, y: 0.01, z: 0.01}, 0.2);
-                setTimeout(() => nextBlock.instance.remove(nextBlock.feverOrb), 200);
+                setTimeout(() => {
+                    if (nextBlock && nextBlock.instance && nextBlock.feverOrb) {
+                        nextBlock.instance.remove(nextBlock.feverOrb);
+                        nextBlock.feverOrb.geometry.dispose(); // 延时彻底销毁
+                        nextBlock.feverOrb.material.dispose(); // 延时彻底销毁
+                        nextBlock.feverOrb = null;
+                    }
+                }, 200);
             }
         }
     }
@@ -382,10 +388,8 @@ export default class GamePage {
     if (isBlindSnipe) {
       finalScore = baseScore * 5 
       gameModel.combo += 1
-      
       const comboName = `combo${Math.min(gameModel.combo, 8)}`
       audioManager.play(comboName) 
-      
       wave.createWave(this.scene.instance, nextBlock.instance.position)
       setTimeout(() => wave.createWave(this.scene.instance, nextBlock.instance.position), 150)
       safeVibrate('heavy') 
@@ -439,7 +443,6 @@ export default class GamePage {
 
   successJump(currentBlock, landedBlock) {
     this.stepCount++   
-    
     this.standingBlock = landedBlock;
 
     const prevIdx = this.blocks.indexOf(landedBlock) - 1;
@@ -455,13 +458,10 @@ export default class GamePage {
     }
     this.activeCollapsingBlock = null;
 
-    // ✨【Fever 循环链】：时序优化
     if (this.isFeverMode) {
         if (this.feverJumpsLeft === 5) {
-            // 给足 500ms，让系统瞬间生成的 5 个方块完全稳稳落地
             setTimeout(() => { this.executeAutoJump(); }, 500); 
         } else if (this.feverJumpsLeft > 0) {
-            // 中间跳跃间隙延长到 300ms，让画面干净清爽，不再鬼畜
             setTimeout(() => { this.executeAutoJump(); }, 300); 
         } else {
             this.isFeverMode = false;
@@ -495,7 +495,6 @@ export default class GamePage {
     if (this.bonusTimer) { clearTimeout(this.bonusTimer); this.bonusTimer = null }
   }
 
-  // ✨【生成引擎修复】：安全隔离参数
   generateNextBlock(isFeverSpawn = false) {
     const lastBlock = this.blocks[this.blocks.length - 1]
   
@@ -552,29 +551,34 @@ export default class GamePage {
     let isMirage = false;
     let spawnFever = false;
 
-    // ✨ 如果是系统代打生成的保底方块，跳过所有概率判定，纯净生成普通的方块
+    // ✨ 暴走生成的方块保持原样，没有任何危险变异
     if (isFeverSpawn) {
-        // 什么都不用做，保持 default 外观和无毒属性
+        // 不应用任何危险属性
     } else if (gameModel.combo >= 3 && !this.isFeverMode) {
-        // 子弹时间降速奖励
+        // ✨【严格内存回收】：替换材质前务必 dispose()
         isMoving = true;
         newBlock.isMoving = true;
         newBlock.moveAxis = isXDirection ? 'z' : 'x';
         newBlock.moveSpeed = 0.001; 
         newBlock.moveRange = 4;
         newBlock.moveOffset = 0;
+        
         const buffMat = new THREE.MeshStandardMaterial({ color: 0xF3E5AB, roughness: 0.85, metalness: 0 }); 
-        newBlock.instance.traverse(c => { if (c.isMesh) c.material = buffMat; });
+        newBlock.instance.traverse(c => { 
+            if (c.isMesh) {
+                if (c.material) c.material.dispose(); // 防止美拉德原材质泄露
+                c.material = buffMat; 
+            }
+        });
     } else {
         const difficultyScale = Math.min((this.stepCount - 10) / 100, 0.4); 
         
-        // ✨ 全局 5% 惊喜概率
         if (!this.isFeverMode && Math.random() < 0.05) {
             spawnFever = true;
         }
 
-        if (this.stepCount > 8)  isMoving = Math.random() < (0.25 + difficultyScale * 0.5); 
-        if (this.stepCount > 15) isIce = Math.random() < (0.20 + difficultyScale * 0.5);    
+        if (this.stepCount > 8)  isIce = Math.random() < (0.25 + difficultyScale * 0.5); 
+        if (this.stepCount > 15) isMoving = Math.random() < (0.20 + difficultyScale * 0.5);    
         if (this.stepCount > 20) isCollapsing = Math.random() < (0.15 + difficultyScale * 0.4); 
         if (this.stepCount > 25) isMirage = Math.random() < (0.15 + difficultyScale * 0.4); 
 
@@ -621,17 +625,25 @@ export default class GamePage {
                 castShadow: true
             });
             newBlock.instance.traverse((child) => {
-                if (child.isMesh) child.material = iceMat;
+                if (child.isMesh) {
+                    if (child.material) child.material.dispose(); // 防止原材质泄漏
+                    child.material = iceMat;
+                }
             });
         }
         
+        // ✨【消除 CPU 狂暴发热】：预存数组，告别每帧 traverse
         if (isMirage) {
             newBlock.isMirage = true;
             newBlock.mirageOffset = Math.random() * Math.PI * 2; 
+            newBlock.mirageMaterials = []; 
             newBlock.instance.traverse(c => {
                 if (c.isMesh && c.material) {
-                    c.material = c.material.clone();
-                    c.material.transparent = true;
+                    const newMat = c.material.clone();
+                    newMat.transparent = true;
+                    c.material.dispose(); // 废弃旧材质
+                    c.material = newMat;
+                    newBlock.mirageMaterials.push(newMat);
                 }
             });
         }
@@ -659,7 +671,7 @@ export default class GamePage {
     const camZ = cam.position.z
   
     this.blocks = this.blocks.filter((block, index) => {
-      // ✨ 保障一口气生成的 5 个方块绝对不会被内存回收掉
+      // 绝对免疫回收锁，保障神罗天征生成的 5 个方块绝对存活
       if (index >= this.blocks.length - 10) return true;
 
       const pos = block.instance.position
@@ -669,6 +681,13 @@ export default class GamePage {
   
       if (!inView) {
         this.scene.instance.remove(block.instance)
+        
+        // ✨【双重内存保险】：如果方块移除了但还有残留数组，彻底清空
+        if (block.mirageMaterials) {
+            block.mirageMaterials.forEach(m => m.dispose());
+            block.mirageMaterials = null;
+        }
+
         if (block.dispose) block.dispose()
         return false
       }
@@ -783,13 +802,12 @@ export default class GamePage {
           if (moveAxis === 'z') newVirtualZ = block.virtualPos;
       }
 
-      if (block.isMirage && !block.hasCollapsed) {
+      // ✨【丝滑渲染】：彻底告别每帧 Traverse，直调材质缓存数组
+      if (block.isMirage && !block.hasCollapsed && block.mirageMaterials) {
           const opacity = Math.pow(Math.sin((now / 1000) * (Math.PI / 10) + block.mirageOffset), 2);
-          block.instance.traverse(c => {
-              if (c.isMesh && c.material) {
-                  c.material.opacity = opacity;
-              }
-          });
+          for (let i = 0; i < block.mirageMaterials.length; i++) {
+              block.mirageMaterials[i].opacity = opacity;
+          }
       }
 
       if (block.hasFeverItem && block.feverOrb && !block.hasCollapsed) {

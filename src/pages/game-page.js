@@ -13,6 +13,14 @@ import scoreText3d from '../objects/score-text-3d'
 import { CustomAnimation } from '../../libs/animation' 
 import particle from '../objects/particle' 
 
+// ✨【触觉引擎升级】：引入微信原生 heavy(重震)、medium(中震)、light(轻震)
+const safeVibrate = (type) => {
+  try {
+    if (type === 'long') wx.vibrateLong()
+    else wx.vibrateShort({ type: type }) 
+  } catch (e) {}
+}
+
 export default class GamePage {
   constructor(callbacks) {
     this.callbacks = callbacks
@@ -23,6 +31,10 @@ export default class GamePage {
     this.chargeAudioTimer = null 
     this.stepCount = 0
     this.isSliding = false 
+    
+    this.lastFrameTime = Date.now()
+    this.activeCollapsingBlock = null 
+    this.lastVibrateTime = 0 
   }
 
   init() {
@@ -36,7 +48,7 @@ export default class GamePage {
 
     scoreText.init() 
     gameModel.scoreChanged.attach((sender, args) => { scoreText.updateScore(args.score) })
-    
+
     this.resetGame()
     this.bindTouchEvent()
     this.render()
@@ -48,19 +60,25 @@ export default class GamePage {
     gameModel.resetScore() 
     this.stepCount = 0 
     this.isSliding = false
+    this.activeCollapsingBlock = null
+    this.lastVibrateTime = 0
 
     this.blocks.forEach(block => {
       this.scene.instance.remove(block.instance)
       if (block.dispose) block.dispose()
     })
     this.blocks = []
-    this.scene.background.setTargetColor('#E8E8E8')
+    
+    this.scene.background.setTargetColor('#81C9B5')
 
     const initWidth = 18
     const initDistance = initWidth + 2 + Math.random() * 2
     const cylinderBlock = new Cuboid(-15, 0, 0, 'default', initWidth)
     const cuboidBlock = new Cylinder(-15 + initDistance, 0, 0, 'default', initWidth)
     
+    cylinderBlock.baseX = -15; cylinderBlock.baseZ = 0;
+    cuboidBlock.baseX = -15 + initDistance; cuboidBlock.baseZ = 0;
+
     this.scene.instance.add(cylinderBlock.instance)
     this.scene.instance.add(cuboidBlock.instance)
     this.blocks.push(cylinderBlock)
@@ -80,8 +98,10 @@ export default class GamePage {
     wx.onTouchStart(() => {
       if (gameModel.getStage() !== 'game-page' || this.isGameOver || this.isSliding) return 
       this.clearBonusTimer() 
-      this.touchStartTime = Date.now()
       
+      safeVibrate('light') 
+
+      this.touchStartTime = Date.now()
       const nextBlock = this.blocks[this.blocks.length - 1]
       const currentBlock = this.blocks[this.blocks.length - 2]
       const currentY = currentBlock.instance.position.y + blockConf.height / 2
@@ -135,18 +155,26 @@ export default class GamePage {
     const nextBlock = this.blocks[this.blocks.length - 1]
     const bottlePos = this.bottle.obj.position
 
-    const nextX = nextBlock.instance.position.x;
-    const nextZ = nextBlock.instance.position.z;
-    const currX = currentBlock.instance.position.x;
-    const currZ = currentBlock.instance.position.z;
+    const nextX = nextBlock.baseX !== undefined ? nextBlock.baseX : nextBlock.instance.position.x;
+    const nextZ = nextBlock.baseZ !== undefined ? nextBlock.baseZ : nextBlock.instance.position.z;
+    const currX = currentBlock.baseX !== undefined ? currentBlock.baseX : currentBlock.instance.position.x;
+    const currZ = currentBlock.baseZ !== undefined ? currentBlock.baseZ : currentBlock.instance.position.z;
 
-    const dxNext = bottlePos.x - nextX
-    const dzNext = bottlePos.z - nextZ
-    const dxCurr = bottlePos.x - currX
-    const dzCurr = bottlePos.z - currZ
+    const nextOffset = nextBlock.virtualPos ? (nextBlock.virtualPos - (nextBlock.moveAxis === 'x' ? nextX : nextZ)) : 0;
+    const currOffset = currentBlock.virtualPos ? (currentBlock.virtualPos - (currentBlock.moveAxis === 'x' ? currX : currZ)) : 0;
 
-    const hitNext = this._checkStrictHit(nextBlock, dxNext, dzNext)
-    const hitCurr = this._checkStrictHit(currentBlock, dxCurr, dzCurr)
+    const realNextX = nextX + (nextBlock.moveAxis === 'x' ? nextOffset : 0);
+    const realNextZ = nextZ + (nextBlock.moveAxis === 'z' ? nextOffset : 0);
+    const realCurrX = currX + (currentBlock.moveAxis === 'x' ? currOffset : 0);
+    const realCurrZ = currZ + (currentBlock.moveAxis === 'z' ? currOffset : 0);
+
+    const dxNext = bottlePos.x - realNextX;
+    const dzNext = bottlePos.z - realNextZ;
+    const dxCurr = bottlePos.x - realCurrX;
+    const dzCurr = bottlePos.z - realCurrZ;
+
+    const hitNext = this._checkStrictHit(nextBlock, dxNext, dzNext) && !nextBlock.hasCollapsed;
+    const hitCurr = this._checkStrictHit(currentBlock, dxCurr, dzCurr) && !currentBlock.hasCollapsed;
     const distanceToNextCenter = Math.sqrt(dxNext * dxNext + dzNext * dzNext)
     const CENTER_RADIUS = Math.min(2.5, nextBlock.width / 3.5)
 
@@ -155,9 +183,8 @@ export default class GamePage {
 
       if (nextBlock.isIce && distanceToNextCenter >= CENTER_RADIUS) {
         this.isSliding = true;
-        
-        const dxTotal = (nextBlock.baseX !== undefined ? nextBlock.baseX : nextBlock.instance.position.x) - (currentBlock.baseX !== undefined ? currentBlock.baseX : currentBlock.instance.position.x);
-        const dzTotal = (nextBlock.baseZ !== undefined ? nextBlock.baseZ : nextBlock.instance.position.z) - (currentBlock.baseZ !== undefined ? currentBlock.baseZ : currentBlock.instance.position.z);
+        const dxTotal = nextX - currX;
+        const dzTotal = nextZ - currZ;
         const distTotal = Math.sqrt(dxTotal * dxTotal + dzTotal * dzTotal);
         const dirX = dxTotal / distTotal;
         const dirZ = dzTotal / distTotal;
@@ -165,15 +192,14 @@ export default class GamePage {
         const maxSlideDist = 3.5; 
         let actualSlideDist = maxSlideDist;
         let willFall = false;
-
         let distToEdge = 999;
         const margin = 0.5;
 
         if (Math.abs(dirX) > Math.abs(dirZ)) {
-            const edgeX = nextBlock.instance.position.x + Math.sign(dirX) * (nextBlock.width / 2 + margin);
+            const edgeX = realNextX + Math.sign(dirX) * (nextBlock.width / 2 + margin);
             distToEdge = Math.abs(edgeX - bottlePos.x);
         } else {
-            const edgeZ = nextBlock.instance.position.z + Math.sign(dirZ) * (nextBlock.width / 2 + margin);
+            const edgeZ = realNextZ + Math.sign(dirZ) * (nextBlock.width / 2 + margin);
             distToEdge = Math.abs(edgeZ - bottlePos.z);
         }
 
@@ -182,40 +208,34 @@ export default class GamePage {
             actualSlideDist = distToEdge + 0.2; 
         }
 
-        // ==========================================
-        // ✨【滑动追踪优化】：动画采用相对增量计算
-        // 允许火柴人在打滑期间依然完美吸附在移动的方块上！
-        // ==========================================
         const slideDuration = (actualSlideDist / maxSlideDist) * 0.3; 
         const sX = dirX * actualSlideDist;
         const sZ = dirZ * actualSlideDist;
         
         let slideProgress = { p: 0 };
-        const startX = this.bottle.obj.position.x;
-        const startZ = this.bottle.obj.position.z;
-
         audioManager.play('water'); 
-
-        // 不直接修改坐标，而是缓动进度，由 update() 自己结合增量计算
         CustomAnimation.to(slideProgress, { p: 1 }, slideDuration);
 
-        // 利用 requestAnimationFrame 在每一帧叠加相对滑动偏移
         const slideLoop = () => {
             if (!this.isSliding) return;
             const currentP = slideProgress.p;
-            // 获取方块底盘实时的绝对坐标，加上相对的滑行距离
-            this.bottle.obj.position.x = nextBlock.instance.position.x + dxNext + (sX * currentP);
-            this.bottle.obj.position.z = nextBlock.instance.position.z + dzNext + (sZ * currentP);
+            const currentRealNextX = nextX + (nextBlock.moveAxis === 'x' && nextBlock.virtualPos ? (nextBlock.virtualPos - nextX) : 0);
+            const currentRealNextZ = nextZ + (nextBlock.moveAxis === 'z' && nextBlock.virtualPos ? (nextBlock.virtualPos - nextZ) : 0);
+            
+            this.bottle.obj.position.x = currentRealNextX + dxNext + (sX * currentP);
+            this.bottle.obj.position.z = currentRealNextZ + dzNext + (sZ * currentP);
             requestAnimationFrame(slideLoop);
         };
         slideLoop();
 
         setTimeout(() => {
             this.isSliding = false;
-            if (willFall) {
-                const finalDx = this.bottle.obj.position.x - nextBlock.instance.position.x;
-                const finalDz = this.bottle.obj.position.z - nextBlock.instance.position.z;
-                this.handleFall(currentBlock, nextBlock, finalDx, finalDz, false, false, distanceToNextCenter);
+            if (willFall || nextBlock.hasCollapsed) {
+                const finalDxNext = this.bottle.obj.position.x - realNextX;
+                const finalDzNext = this.bottle.obj.position.z - realNextZ;
+                const finalDxCurr = this.bottle.obj.position.x - realCurrX;
+                const finalDzCurr = this.bottle.obj.position.z - realCurrZ;
+                this.handleFall(currentBlock, nextBlock, finalDxNext, finalDzNext, finalDxCurr, finalDzCurr, false, false, distanceToNextCenter);
             } else {
                 this.handleHitNext(currentBlock, nextBlock, distanceToNextCenter, CENTER_RADIUS, true);
             }
@@ -230,25 +250,26 @@ export default class GamePage {
       if (isMicroStep) return; 
       
       gameModel.combo = 0
+      safeVibrate('light') 
       audioManager.play('success') 
       particle.createDust(this.scene.instance, this.bottle.obj.position)
       this.startBonusTimer(currentBlock) 
     } else {
-      this.handleFall(currentBlock, nextBlock, dxNext, dzNext, hitNext, hitCurr, distanceToNextCenter);
+      this.handleFall(currentBlock, nextBlock, dxNext, dzNext, dxCurr, dzCurr, hitNext, hitCurr, distanceToNextCenter);
     }
   }
 
   handleHitNext(currentBlock, nextBlock, distanceToNextCenter, CENTER_RADIUS, wasSliding) {
     const blockDistance = Math.sqrt(
-      Math.pow((nextBlock.baseX !== undefined ? nextBlock.baseX : nextBlock.instance.position.x) - 
-               (currentBlock.baseX !== undefined ? currentBlock.baseX : currentBlock.instance.position.x), 2) + 
-      Math.pow((nextBlock.baseZ !== undefined ? nextBlock.baseZ : nextBlock.instance.position.z) - 
-               (currentBlock.baseZ !== undefined ? currentBlock.baseZ : currentBlock.instance.position.z), 2)
+      Math.pow((nextBlock.baseX) - (currentBlock.baseX), 2) + 
+      Math.pow((nextBlock.baseZ) - (currentBlock.baseZ), 2)
     )
     let baseScore = Math.max(1, Math.floor(blockDistance / 5)) 
     let finalScore = baseScore
 
-    if (!wasSliding && distanceToNextCenter < CENTER_RADIUS) {
+    let isPerfect = (!wasSliding && distanceToNextCenter < CENTER_RADIUS);
+
+    if (isPerfect) {
       finalScore = baseScore * 2
       gameModel.combo += 1
       const comboName = `combo${Math.min(gameModel.combo, 8)}`
@@ -259,19 +280,35 @@ export default class GamePage {
       audioManager.play('success') 
     }
 
+    // ==========================================
+    // ✨【触觉增强】：完美区分不同降落材质的手感！
+    // ==========================================
+    if (nextBlock.isCollapsing) {
+      // 跳上脆弱的塌陷方块时，给予最强烈的“重震 (heavy)”，提示危险降临！
+      safeVibrate('heavy'); 
+    } else if (isPerfect) {
+      safeVibrate('medium'); 
+    } else {
+      safeVibrate('light'); 
+    }
+
     gameModel.addScore(finalScore)
     scoreText3d.showScore(this.scene.instance, finalScore, nextBlock.instance.position)
     particle.createDust(this.scene.instance, this.bottle.obj.position)
-    this.successJump(nextBlock)
+    
+    // 传递 currentBlock 以便执行过河拆桥
+    this.successJump(currentBlock, nextBlock)
   }
 
-  handleFall(currentBlock, nextBlock, dxNext, dzNext, hitNext, hitCurr, distanceToNextCenter) {
+  handleFall(currentBlock, nextBlock, dxNext, dzNext, dxCurr, dzCurr, hitNext, hitCurr, distanceToNextCenter) {
     this.isGameOver = true
+    this.activeCollapsingBlock = null; 
+    this.isSliding = false;
+    
     audioManager.play('fall') 
-    gameModel.saveHighestScore()
+    safeVibrate('long') 
 
-    const dxCurr = this.bottle.obj.position.x - currentBlock.instance.position.x;
-    const dzCurr = this.bottle.obj.position.z - currentBlock.instance.position.z;
+    gameModel.saveHighestScore()
 
     let fallType = 'straight'
     if (!hitNext && distanceToNextCenter < nextBlock.width / 2 + 2.5) {
@@ -285,8 +322,25 @@ export default class GamePage {
     setTimeout(() => { if (this.callbacks && this.callbacks.showGameOverPage) this.callbacks.showGameOverPage() }, 1500)
   }
 
-  successJump(landedBlock) {
+  // ✨【过河拆桥】：接收上一块石头，用于离足销毁
+  successJump(currentBlock, landedBlock) {
     this.stepCount++   
+    
+    // ==========================================
+    // ✨【原点消失】：只要跳离了塌陷格子，它立刻化为齑粉！
+    // ==========================================
+    if (currentBlock && currentBlock.isCollapsing && !currentBlock.hasCollapsed) {
+        currentBlock.hasCollapsed = true;
+        // 0.2秒内极速萎缩消失，深藏功与名
+        CustomAnimation.to(currentBlock.instance.scale, {x: 0.01, y: 0.01, z: 0.01}, 0.2);
+    }
+
+    if (this.activeCollapsingBlock && this.activeCollapsingBlock.hasCollapsed === false) {
+        this.activeCollapsingBlock.shakeOffsetX = 0;
+        this.activeCollapsingBlock.shakeOffsetZ = 0;
+    }
+    this.activeCollapsingBlock = null;
+
     this.generateNextBlock()
     this.updateCamera()
     this.startBonusTimer(landedBlock) 
@@ -336,11 +390,6 @@ export default class GamePage {
       nextWidth * 1.3
     }
   
-    const challengeChance = 0.1 + t * 0.2
-    if (Math.random() < challengeChance) {
-      distance *= 1.3
-    }
-  
     const targetY = 0 
     const isXDirection = Math.random() > 0.5 
     
@@ -367,73 +416,76 @@ export default class GamePage {
     newBlock.baseX = newX;
     newBlock.baseZ = newZ;
     
-    // ==========================================
-    // ✨【A路线终极阶梯】：控制组合出现的概率
-    // 阶梯 1: 纯移动 (>8)
-    // 阶梯 2: 纯冰块 (>15)
-    // 阶梯 3: 终极冰块 + 移动 (>20)
-    // ==========================================
     let isMoving = false;
     let isIce = false;
+    let isCollapsing = false;
 
-    const rand = Math.random();
-
-    if (this.stepCount > 20) {
-        // 第 3 阶段：动感冰块登场！
-        if (rand < 0.20) {
-            isMoving = true;
-            isIce = true;
-        } else if (rand < 0.40) {
-            isIce = true;
-        } else if (rand < 0.65) {
-            isMoving = true;
-        }
-    } else if (this.stepCount > 15) {
-        // 第 2 阶段：纯冰块
-        if (rand < 0.20) {
-            isIce = true;
-        } else if (rand < 0.45) {
-            isMoving = true;
-        }
-    } else if (this.stepCount > 8) {
-        // 第 1 阶段：仅移动方块
-        if (rand < 0.25) {
-            isMoving = true;
-        }
-    }
-
-    if (isMoving) {
+    if (gameModel.combo >= 3) {
+        isMoving = true;
         newBlock.isMoving = true;
-        newBlock.moveAxis = isXDirection ? 'z' : 'x'; 
-        const speedMultiplier = Math.min(1 + (this.stepCount - 8) / 40, 3.0); // 终极速度上限
-        newBlock.moveSpeed = (0.0015 + Math.random() * 0.001) * speedMultiplier;
-        newBlock.moveRange = 5 + Math.random() * 4;
-        newBlock.moveOffset = Math.random() * Math.PI * 2; 
-    }
-
-    if (isIce) {
-        newBlock.isIce = true;
-        // 视觉区分：普通的冰块是冰蓝色，极度危险的【移动冰块】是高能紫光色！
-        const iceColor = isMoving ? 0xcc88ff : 0x88ddff; 
-        const emissiveColor = isMoving ? 0x441155 : 0x113355;
-
-        const iceMat = new THREE.MeshPhysicalMaterial({
-            color: iceColor,       
-            transmission: 0.6,     
-            transparent: true,
-            opacity: 1,
-            metalness: 0.2,
-            roughness: 0.1,       
-            ior: 1.5,
-            emissive: emissiveColor,    
-            castShadow: true
-        });
+        newBlock.moveAxis = isXDirection ? 'z' : 'x';
+        newBlock.moveSpeed = 0.001; 
+        newBlock.moveRange = 4;
+        newBlock.moveOffset = 0;
         
-        newBlock.instance.traverse((child) => {
-            if (child.isMesh) {
-                child.material = iceMat;
-            }
-        });
+        const buffMat = new THREE.MeshStandardMaterial({ color: 0xF3E5AB, roughness: 0.85, metalness: 0 }); 
+        newBlock.instance.traverse(c => { if (c.isMesh) c.material = buffMat; });
+
+    } else {
+        if (this.stepCount > 25) {
+            const rand = Math.random();
+            if (rand < 0.15) { isMoving = true; isIce = true; isCollapsing = true; } 
+            else if (rand < 0.30) { isIce = true; isCollapsing = true; } 
+            else if (rand < 0.50) { isMoving = true; isCollapsing = true; } 
+            else if (rand < 0.65) { isCollapsing = true; }
+            else if (rand < 0.80) { isIce = true; }
+            else { isMoving = true; }
+        } else if (this.stepCount > 2) {
+            const rand = Math.random();
+            if (rand < 0.85) { isCollapsing = true; } 
+            else if (rand < 0.35) { isIce = true; }
+            else if (rand < 0.60) { isMoving = true; }
+        } else if (this.stepCount > 8) {
+            if (Math.random() < 0.25) { isMoving = true; }
+        }
+
+        if (isMoving) {
+            newBlock.isMoving = true;
+            newBlock.moveAxis = isXDirection ? 'z' : 'x'; 
+            const speedMultiplier = Math.min(1 + (this.stepCount - 8) / 40, 3.0); 
+            newBlock.moveSpeed = (0.0015 + Math.random() * 0.001) * speedMultiplier;
+            newBlock.moveRange = 5 + Math.random() * 4;
+            newBlock.moveOffset = Math.random() * Math.PI * 2; 
+        }
+
+        if (isCollapsing) {
+            newBlock.isCollapsing = true;
+            newBlock.collapseTimeLeft = 10; 
+            newBlock.triggeredCollapse = false;
+            newBlock.hasCollapsed = false;
+            newBlock.shakeOffsetX = 0;
+            newBlock.shakeOffsetZ = 0;
+        }
+
+        if (isIce) {
+            newBlock.isIce = true;
+            const iceColor = 0x88ddff; 
+            const iceMat = new THREE.MeshPhysicalMaterial({
+                color: iceColor,       
+                transmission: 0.6,     
+                transparent: true,
+                opacity: 1,
+                metalness: 0.2,
+                roughness: 0.1,       
+                ior: 1.5,
+                emissive: 0x113355,    
+                castShadow: true
+            });
+            
+            newBlock.instance.traverse((child) => {
+                if (child.isMesh) child.material = iceMat;
+            });
+        }
     }
   
     newBlock.instance.position.y = targetY + 15
@@ -441,7 +493,6 @@ export default class GamePage {
     this.blocks.push(newBlock)
   
     CustomAnimation.to(newBlock.instance.position, { y: targetY }, 0.25)
-  
     this.cleanupBlocks()
   }
 
@@ -477,15 +528,17 @@ export default class GamePage {
     const lastBlock = this.blocks[this.blocks.length - 1] 
     const currentBlock = this.blocks[this.blocks.length - 2] 
     
-    const lastX = lastBlock.baseX !== undefined ? lastBlock.baseX : lastBlock.instance.position.x;
-    const lastZ = lastBlock.baseZ !== undefined ? lastBlock.baseZ : lastBlock.instance.position.z;
-    const currX = currentBlock.baseX !== undefined ? currentBlock.baseX : currentBlock.instance.position.x;
-    const currZ = currentBlock.baseZ !== undefined ? currentBlock.baseZ : currentBlock.instance.position.z;
+    const lastX = (lastBlock && lastBlock.baseX !== undefined) ? lastBlock.baseX : (lastBlock ? lastBlock.instance.position.x : 0);
+    const lastZ = (lastBlock && lastBlock.baseZ !== undefined) ? lastBlock.baseZ : (lastBlock ? lastBlock.instance.position.z : 0);
+    const currX = (currentBlock && currentBlock.baseX !== undefined) ? currentBlock.baseX : (currentBlock ? currentBlock.instance.position.x : 0);
+    const currZ = (currentBlock && currentBlock.baseZ !== undefined) ? currentBlock.baseZ : (currentBlock ? currentBlock.instance.position.z : 0);
+    const lastY = lastBlock ? (lastBlock.instance.position.y - 15) : 0;
+    const currY = currentBlock ? currentBlock.instance.position.y : 0;
 
     const targetPosition = new THREE.Vector3(
-      (lastX + currX) / 2,
-      ((lastBlock.instance.position.y - 15) + currentBlock.instance.position.y) / 2,
-      (lastZ + currZ) / 2
+      (lastX + currX) / 2 || 0,
+      (lastY + currY) / 2 || 0,
+      (lastZ + currZ) / 2 || 0
     )
     camera.updatePosition(targetPosition)
   }
@@ -504,25 +557,90 @@ export default class GamePage {
     }
 
     const now = Date.now();
+    const dt = (now - this.lastFrameTime) / 1000;
+    this.lastFrameTime = now;
     
     let currentStandingBlock = this.blocks[this.blocks.length - 2];
     if (this.isSliding) {
         currentStandingBlock = this.blocks[this.blocks.length - 1];
     }
 
-    this.blocks.forEach(block => {
-      if (block.isMoving && block.instance) {
-        const basePos = block.moveAxis === 'x' ? block.baseX : block.baseZ;
-        const prevPos = block.instance.position[block.moveAxis]; 
-        const newPos = basePos + Math.sin(now * block.moveSpeed + block.moveOffset) * block.moveRange; 
-        
-        const delta = newPos - prevPos;
-        block.instance.position[block.moveAxis] = newPos;
+    if (!this.isGameOver && currentStandingBlock && currentStandingBlock.isCollapsing && !currentStandingBlock.triggeredCollapse && this.bottle.status === 'stop') {
+        currentStandingBlock.triggeredCollapse = true;
+        this.activeCollapsingBlock = currentStandingBlock;
+    }
 
-        // 无论是静止、蓄力、还是打滑期间，火柴人都会完美吸收平台的移动增量
-        if (block === currentStandingBlock && this.bottle && (this.bottle.status === 'stop' || this.bottle.status === 'prepare')) {
-          this.bottle.obj.position[block.moveAxis] += delta;
+    if (this.activeCollapsingBlock && !this.activeCollapsingBlock.hasCollapsed && !this.isGameOver) {
+        const block = this.activeCollapsingBlock;
+        block.collapseTimeLeft -= dt;
+
+        if (block.collapseTimeLeft > 0) {
+            const progress = 1 - Math.max(0, block.collapseTimeLeft / 10);
+            
+            const intensity = Math.pow(progress, 3) * 1.5 + 0.05; 
+            block.shakeOffsetX = (Math.random() - 0.5) * intensity;
+            block.shakeOffsetZ = (Math.random() - 0.5) * intensity;
+
+            // ==========================================
+            // ✨【死亡心跳增强】：引入 heavy 剧烈震动
+            // 越到后面，震动越强、频率越快，压迫感拉满！
+            // ==========================================
+            if (this.bottle.status === 'stop' || this.bottle.status === 'prepare') {
+                const vibrateInterval = 800 - (progress * 700); 
+                if (now - this.lastVibrateTime > vibrateInterval) {
+                    safeVibrate(progress > 0.6 ? 'heavy' : 'medium'); // 后期剧烈抖动时，使用 heavy 重震
+                    this.lastVibrateTime = now;
+                }
+            }
+        } else {
+            block.hasCollapsed = true;
+            CustomAnimation.to(block.instance.scale, {x: 0.01, y: 0.01, z: 0.01}, 0.2);
+            
+            if (!this.isGameOver && (this.bottle.status === 'stop' || this.bottle.status === 'prepare')) {
+                this.isGameOver = true;
+                audioManager.play('fall');
+                safeVibrate('long'); 
+                this.bottle.fall('straight'); 
+                setTimeout(() => { if (this.callbacks && this.callbacks.showGameOverPage) this.callbacks.showGameOverPage() }, 1500);
+            }
         }
+    }
+
+    this.blocks.forEach(block => {
+      let deltaX = 0;
+      let deltaZ = 0;
+      const prevX = block.instance.position.x;
+      const prevZ = block.instance.position.z;
+
+      let shakeX = 0;
+      let shakeZ = 0;
+      if (block.isCollapsing && block.triggeredCollapse && !block.hasCollapsed) {
+          shakeX = block.shakeOffsetX || 0;
+          shakeZ = block.shakeOffsetZ || 0;
+      }
+
+      let newVirtualX = block.baseX;
+      let newVirtualZ = block.baseZ;
+
+      if (block.isMoving && !block.hasCollapsed) {
+          const moveAxis = block.moveAxis;
+          const basePos = moveAxis === 'x' ? block.baseX : block.baseZ;
+          block.virtualPos = basePos + Math.sin(now * block.moveSpeed + block.moveOffset) * block.moveRange;
+          if (moveAxis === 'x') newVirtualX = block.virtualPos;
+          if (moveAxis === 'z') newVirtualZ = block.virtualPos;
+      }
+
+      if (!block.hasCollapsed) {
+          block.instance.position.x = newVirtualX + shakeX;
+          block.instance.position.z = newVirtualZ + shakeZ;
+          
+          deltaX = block.instance.position.x - prevX;
+          deltaZ = block.instance.position.z - prevZ;
+
+          if (block === currentStandingBlock && this.bottle && (this.bottle.status === 'stop' || this.bottle.status === 'prepare') && !this.isSliding) {
+              this.bottle.obj.position.x += deltaX;
+              this.bottle.obj.position.z += deltaZ;
+          }
       }
     });
 

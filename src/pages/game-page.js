@@ -569,7 +569,7 @@ export default class GamePage {
         const difficultyScale = Math.min((this.stepCount - 10) / 100, 0.4); 
         
         // ✨ 全局 5% 惊喜概率
-        if (this.stepCount > 10 && !this.isFeverMode && Math.random() < 0.05) {
+        if (!this.isFeverMode && Math.random() < 0.05) {
             spawnFever = true;
         }
 

@@ -28,20 +28,22 @@ class Bottle {
     // ==========================================
     // 【核心视觉】：美拉德高级盲盒玩偶 (Maillard Soft Doll)
     // ==========================================
-    
-    const cHead = 0xEACCA8 
-    const cBody = 0xB36A32 
-    const cArm  = 0xC98A4B 
-    const cLeg  = 0x8A4F23 
-    const cFoot = 0x4A2F1D 
-    const cBlush = 0xFFB6C1 
+
+    // 方案二：京都木棉
+    // 特点：非常有故事感，踩在“自然系”格子上像在散步，踩在“金属系”格子上像艺术潮玩。
+    const cHead  = 0xFFFDF0; // 奶油白（未染色原棉的颜色）
+    const cBody  = 0x2F3E55; // 深藏青（原色单宁夹克）
+    const cArm   = 0x1A2A40; // 同上
+    const cLeg   = 0xE9E4D4; // 燕麦卡其（重磅斜纹裤）
+    const cFoot  = 0x7A5C4D; // 巧克力棕（复古手工皮鞋）
+    const cBlush = 0xECB390; // 杏橘色（透出一种健康、阳光的穿搭氛围）
 
     const matParams = { roughness: 0.5, metalness: 0.0 }
     const matHead = new THREE.MeshStandardMaterial({ color: cHead, ...matParams })
-    const matBody = new THREE.MeshStandardMaterial({ color: cBody, ...matParams })
+    const matBody = new THREE.MeshStandardMaterial({ color: cBody, oughness: 0.5, metalness: 0.1 })
     const matArm  = new THREE.MeshStandardMaterial({ color: cArm,  ...matParams })
     const matLeg  = new THREE.MeshStandardMaterial({ color: cLeg,  ...matParams })
-    const matFoot = new THREE.MeshStandardMaterial({ color: cFoot, roughness: 0.7, metalness: 0 })
+    const matFoot = new THREE.MeshStandardMaterial({ color: cFoot, roughness: 0.2, metalness: 0.4 })
     const matEye  = new THREE.MeshStandardMaterial({ color: cFoot, roughness: 0.3, metalness: 0.2 })
     const matBlush = new THREE.MeshStandardMaterial({ color: cBlush, roughness: 0.8, metalness: 0 })
 
@@ -65,9 +67,14 @@ class Bottle {
     const obj = this.obj = new THREE.Object3D()
     obj.position.set(bottleConf.initPosition.x, bottleConf.initPosition.y + 10, bottleConf.initPosition.z)
 
+    // ==========================================
+    // ✨【光影修复】：锁死辅光角度，消除全屏高亮 Bug
+    // ==========================================
     const dollFillLight = new THREE.DirectionalLight(0xfff0e6, 0.4)
     dollFillLight.position.set(3, 5, 4)
     obj.add(dollFillLight)
+    // 关键修复：把 Target 也挂载到本体上，确保照射相对角度永远不变！
+    obj.add(dollFillLight.target) 
 
     this.directionWrapper = new THREE.Object3D()
     const bottle = this.bottle = new THREE.Object3D()
@@ -84,7 +91,7 @@ class Bottle {
     this.headGroup = new THREE.Group()
     
     const headGeom = new THREE.SphereGeometry(1.45, 32, 32)
-    headGeom.scale(1.15, 1.0, 1.15) 
+    headGeom.scale(1.1, 0.9, 1.1) 
     this.head = new THREE.Mesh(headGeom, matHead)
     this.head.castShadow = true
     this.headGroup.add(this.head)
@@ -288,7 +295,7 @@ class Bottle {
     this.status = 'jump'
     
     let effectivePressTime = Math.max(0, pressTime - PRESS_TIME_THRESHOLD)
-    const JUMP_FACTOR = 0.00102 
+    const JUMP_FACTOR = 0.00102
     const totalScalarVelocity = effectivePressTime * JUMP_FACTOR 
 
     this.velocity.vx = (dx / this.distanceToTarget) * totalScalarVelocity

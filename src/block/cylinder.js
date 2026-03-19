@@ -1,15 +1,10 @@
 // src/block/cylinder.js
 import BaseBlock from './base'
 import blockConf from '../../confs/block-conf'
+import colorConf from '../../confs/color-conf'
 
-const ART_PALETTES = [
-  { name: '美拉德 (Maillard)', colors: [0xF5DEB3, 0x8B5A2B, 0x3E2723] }, 
-  { name: '莫奈水星 (Monet)', colors: [0xB0E0E6, 0x778899, 0x4682B4] },  
-  { name: '梵高星空 (Van Gogh)', colors: [0xFFD700, 0x1E90FF, 0x000080] },
-  { name: '莫兰迪 (Morandi)', colors: [0xE0D6D6, 0xC4B7B7, 0x9E9090] }, 
-  { name: '美式复古 (Vintage)', colors: [0x2E8B57, 0xF5DEB3, 0x800000] }, 
-  { name: '高定极简 (Couture)', colors: [0xFFFFFF, 0x808080, 0x111111] }  
-]
+// 🌿 保持与立方体同源的插画生态体系配色
+const ART_PALETTES = colorConf.ART_PALETTES
 
 export default class Cylinder extends BaseBlock {
   constructor(x, y, z, skin = 'default', customWidth) {

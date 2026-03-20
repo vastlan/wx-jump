@@ -4,9 +4,6 @@ import gameModel from '../game/model'
 const mockDelay = (ms = 300) => new Promise(resolve => setTimeout(resolve, ms));
 
 export default class API {
-    // ==========================================
-    // 🔗 神秘链接 (预留真实 Logo 字段)
-    // ==========================================
     static async getMysteryLinks() {
         await mockDelay();
         return [
@@ -16,9 +13,6 @@ export default class API {
         ];
     }
 
-    // ==========================================
-    // 🎁 今日奖品 (白嫖抽奖区)
-    // ==========================================
     static async getDailyPrizes() {
         await mockDelay();
         return [
@@ -27,9 +21,6 @@ export default class API {
         ];
     }
 
-    // ==========================================
-    // 🛍️ 积分商城系统 (符合手绘世界观)
-    // ==========================================
     static async getStoreItems() {
         await mockDelay();
         return [
@@ -41,34 +32,24 @@ export default class API {
 
     static async getUserInventory() {
         await mockDelay(100);
-        if (typeof wx !== 'undefined') {
-            return wx.getStorageSync('user_inventory') || [];
-        } else {
-            return JSON.parse(localStorage.getItem('user_inventory') || '[]');
-        }
+        if (typeof wx !== 'undefined') return wx.getStorageSync('user_inventory') || [];
+        else return JSON.parse(localStorage.getItem('user_inventory') || '[]');
     }
 
     static async buyItem(itemId, price) {
         await mockDelay();
         const success = gameModel.deductCoins(price);
-        if (!success) {
-            return { success: false, msg: '积分不够哦' };
-        }
+        if (!success) return { success: false, msg: '积分不够哦' };
+        
         let inventory = await this.getUserInventory();
         if (!inventory.includes(itemId)) {
             inventory.push(itemId);
-            if (typeof wx !== 'undefined') {
-                wx.setStorageSync('user_inventory', inventory);
-            } else {
-                localStorage.setItem('user_inventory', JSON.stringify(inventory));
-            }
+            if (typeof wx !== 'undefined') wx.setStorageSync('user_inventory', inventory);
+            else localStorage.setItem('user_inventory', JSON.stringify(inventory));
         }
         return { success: true, remainingCoins: gameModel.coins, inventory };
     }
 
-    // ==========================================
-    // 🏆 排行榜系统 (单机 Mock)
-    // ==========================================
     static async getGlobalRank() {
         await mockDelay();
         return [
@@ -81,19 +62,38 @@ export default class API {
     static async getFriendRank() {
         await mockDelay();
         const list = [
-            { name: '薅薅', score: 1200 },
-            { name: '羊羊', score: 800 },
-            { name: '毛毛', score: 800 },
-            { name: '欢欢', score: 800 },
-            { name: '茵茵', score: 800 },
-            { name: '宁宁', score: 800 },
-            { name: '宁宁', score: 800 },
-            { name: '宁宁', score: 800 },
-            { name: '宁宁', score: 800 },
+            { name: '隔壁老王', score: 1200 },
+            { name: '我的小号', score: 800 },
             { name: '你', score: gameModel.highestScore },
         ];
-        return list.sort((a, b) => b.score - a.score).map((item, index) => ({
-            ...item, rank: index + 1
-        }));
+        return list.sort((a, b) => b.score - a.score).map((item, index) => ({ ...item, rank: index + 1 }));
+    }
+
+    // ==========================================
+    // ✨ 修复：根据真实分数计算的动态合规文案
+    // ==========================================
+    static async getShareDescs(currentScore) {
+        await mockDelay(50);
+        
+        // 真实合理的百分比算法：0分就是0%，有分数才开始计算击败率
+        let exceedPct = 0;
+        if (currentScore > 0) {
+            exceedPct = Math.min(99, Math.floor(12 + currentScore * 2.8)); 
+        }
+
+        return [
+            `本次积分超越${exceedPct}%玩家，这得好好炫炫`,
+            `本次已积累${currentScore}积分，叫上好友一起来挑战吧`,
+            `独乐乐不如众乐乐，叫上朋友一起薅`,
+            `战绩不错，快去微信群里装个杯`
+        ];
+    }
+
+    static async getShareTemplates() {
+        await mockDelay(50);
+        return {
+            universal: ["快来帮我看看，这关怎么过？", "发现一个宝藏小游戏，快上车", "休闲解压，点开即玩", "快来和我一起快乐闯关吧"],
+            showoff: ["轻轻松松{score}分，还有谁？", "{score}分达成！我的手速超乎想象", "不好意思，{score}分就是这么简单"]
+        };
     }
 }

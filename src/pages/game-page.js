@@ -12,8 +12,8 @@ import blockConf from '../../confs/block-conf'
 import scoreText3d from '../objects/score-text-3d'
 import { CustomAnimation } from '../../libs/animation' 
 import particle from '../objects/particle' 
+import reviveFree from '../components/revive-free'
 
-// 安全调用微信震动 API
 const safeVibrate = (type) => {
   try {
     if (type === 'long') wx.vibrateLong()
@@ -40,7 +40,6 @@ export default class GamePage {
     this.isFeverMode = false
     this.feverJumpsLeft = 0
 
-    // ✨ 性能优化：缓存 render 绑定，避免每帧产生新的函数对象导致 CPU GC 卡顿
     this.renderBound = this.render.bind(this)
   }
 
@@ -59,22 +58,15 @@ export default class GamePage {
     this.resetGame()
     this.bindTouchEvent()
     
-    // 启动渲染循环
     requestAnimationFrame(this.renderBound)
   }
 
-  // ✨ 核心修复：深度垃圾回收算法
   deepDispose(obj) {
       if (!obj) return;
-      if (obj.geometry) {
-          obj.geometry.dispose();
-      }
+      if (obj.geometry) obj.geometry.dispose();
       if (obj.material) {
-          if (Array.isArray(obj.material)) {
-              obj.material.forEach(m => m.dispose());
-          } else {
-              obj.material.dispose();
-          }
+          if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+          else obj.material.dispose();
       }
   }
 
@@ -82,7 +74,9 @@ export default class GamePage {
     this.isGameOver = false
     this.clearBonusTimer() 
     
-    // ✨ 修复：如果玩家在按压蓄力时死亡或重置，必须清除音效定时器
+    // ✨ 新开一局时，通知免费组件刷新5次复活机会
+    reviveFree.onGameStart();
+
     if (this.chargeAudioTimer) {
         clearInterval(this.chargeAudioTimer)
         this.chargeAudioTimer = null
@@ -98,25 +92,13 @@ export default class GamePage {
     this.isFeverMode = false
     this.feverJumpsLeft = 0
 
-    // ✨ 核心修复：再来一局时，彻底榨干废弃方块的每一滴 GPU 显存
     this.blocks.forEach(block => {
       this.scene.instance.remove(block.instance)
-      
-      // 1. 释放光球模型显存
-      if (block.feverOrb) {
-          this.deepDispose(block.feverOrb);
-      }
-      // 2. 释放幻影材质显存
-      if (block.mirageMaterials) {
-          block.mirageMaterials.forEach(m => m.dispose());
-      }
-      // 3. 递归遍历释放冰块、美拉德等所有替换过的材质
+      if (block.feverOrb) this.deepDispose(block.feverOrb);
+      if (block.mirageMaterials) block.mirageMaterials.forEach(m => m.dispose());
       if (block.instance) {
-          block.instance.traverse(c => {
-              if (c.isMesh) this.deepDispose(c);
-          });
+          block.instance.traverse(c => { if (c.isMesh) this.deepDispose(c); });
       }
-      // 4. 调用原有的基础清理
       if (block.dispose) block.dispose()
     })
     this.blocks = []
@@ -148,13 +130,50 @@ export default class GamePage {
     this.updateCamera()
   }
 
+  // ==========================================
+  // ✨ 核心修复：复活逻辑，防止死机卡顿
+  // ==========================================
+  revive() {
+    this.isGameOver = false;
+    this.isSliding = false;
+    this.isFeverMode = false;
+
+    // 1. 如果方块塌陷了，拉回来还原！
+    if (this.standingBlock) {
+        this.standingBlock.hasCollapsed = false;
+        this.standingBlock.collapseTimeLeft = 10;
+        this.standingBlock.triggeredCollapse = false;
+        this.standingBlock.instance.scale.set(1, 1, 1);
+        this.standingBlock.shakeOffsetX = 0;
+        this.standingBlock.shakeOffsetZ = 0;
+    }
+    this.activeCollapsingBlock = null;
+
+    // 2. 彻底重置火柴人的网格旋转态，治愈“起不来”的残影
+    if (this.bottle) {
+        this.bottle.reset(); 
+        this.bottle.status = 'stop'; 
+
+        // 计算脚下中心坐标
+        const safeX = this.standingBlock.baseX !== undefined ? this.standingBlock.baseX : this.standingBlock.instance.position.x;
+        const safeZ = this.standingBlock.baseZ !== undefined ? this.standingBlock.baseZ : this.standingBlock.instance.position.z;
+
+        // 安全降落
+        this.bottle.obj.position.set(safeX, this.standingBlock.instance.position.y + blockConf.height / 2, safeZ);
+    }
+
+    this.updateCamera();
+  }
+  // ==========================================
+
   bindTouchEvent() {
     wx.onTouchStart(() => {
-      if (gameModel.getStage() !== 'game-page' || this.isGameOver || this.isSliding || this.isFeverMode) return 
+      const stage = gameModel.getStage();
+      // ✨ 核心修复：允许在 'game-revive' 状态下接收触摸指令！
+      if ((stage !== 'game-page' && stage !== 'game-revive') || this.isGameOver || this.isSliding || this.isFeverMode) return 
       this.clearBonusTimer() 
       
       safeVibrate('light') 
-
       this.touchStartTime = Date.now()
 
       const currentIdx = this.blocks.indexOf(this.standingBlock)
@@ -163,7 +182,6 @@ export default class GamePage {
       if (!currentBlock || !nextBlock) return
 
       const currentY = currentBlock.instance.position.y + blockConf.height / 2
-      
       const targetPos = new THREE.Vector3(
         nextBlock.baseX !== undefined ? nextBlock.baseX : nextBlock.instance.position.x,
         nextBlock.instance.position.y,
@@ -171,13 +189,14 @@ export default class GamePage {
       )
       
       this.bottle.prepare(targetPos, currentBlock, currentY)
-      
       audioManager.play('scale_intro') 
       this.chargeAudioTimer = setInterval(() => { audioManager.play('scale_loop') }, 900)
     })
 
     wx.onTouchEnd(() => {
-      if (gameModel.getStage() !== 'game-page' || this.isGameOver || this.isSliding || this.isFeverMode) return
+      const stage = gameModel.getStage();
+      // ✨ 同理修复！
+      if ((stage !== 'game-page' && stage !== 'game-revive') || this.isGameOver || this.isSliding || this.isFeverMode) return
       
       if (this.chargeAudioTimer) { clearInterval(this.chargeAudioTimer); this.chargeAudioTimer = null }
       audioManager.stop('scale_intro') 
@@ -401,7 +420,7 @@ export default class GamePage {
         if (isPerfect && !this.isFeverMode) {
             if (nextBlock.feverOrb) {
                 nextBlock.instance.remove(nextBlock.feverOrb); 
-                this.deepDispose(nextBlock.feverOrb); // 安全清理光球
+                this.deepDispose(nextBlock.feverOrb); 
                 nextBlock.feverOrb = null;
             }
             
@@ -419,7 +438,7 @@ export default class GamePage {
                 setTimeout(() => {
                     if (nextBlock && nextBlock.instance && nextBlock.feverOrb) {
                         nextBlock.instance.remove(nextBlock.feverOrb);
-                        this.deepDispose(nextBlock.feverOrb); // 安全延时清理
+                        this.deepDispose(nextBlock.feverOrb); 
                         nextBlock.feverOrb = null;
                     }
                 }, 200);
@@ -594,7 +613,7 @@ export default class GamePage {
     let spawnFever = false;
 
     if (isFeverSpawn) {
-        // 暴走状态安全生成
+        
     } else if (gameModel.combo >= 3 && !this.isFeverMode) {
         isMoving = true;
         newBlock.isMoving = true;
@@ -653,15 +672,7 @@ export default class GamePage {
         if (isIce) {
             newBlock.isIce = true;
             const iceMat = new THREE.MeshPhysicalMaterial({
-                color: 0x88ddff,       
-                transmission: 0.6,     
-                transparent: true,
-                opacity: 1,
-                metalness: 0.2,
-                roughness: 0.1,       
-                ior: 1.5,
-                emissive: 0x113355,    
-                castShadow: true
+                color: 0x88ddff, transmission: 0.6, transparent: true, opacity: 1, metalness: 0.2, roughness: 0.1, ior: 1.5, emissive: 0x113355, castShadow: true
             });
             newBlock.instance.traverse((child) => {
                 if (child.isMesh) {
@@ -719,18 +730,13 @@ export default class GamePage {
       if (!inView) {
         this.scene.instance.remove(block.instance)
         
-        // ✨ 核心修复：滚出屏幕的方块，不仅要移出场景，还要把显存炸得干干净净
-        if (block.feverOrb) {
-            this.deepDispose(block.feverOrb);
-        }
+        if (block.feverOrb) this.deepDispose(block.feverOrb);
         if (block.mirageMaterials) {
             block.mirageMaterials.forEach(m => m.dispose());
             block.mirageMaterials = null;
         }
         if (block.instance) {
-            block.instance.traverse(c => {
-                if (c.isMesh) this.deepDispose(c);
-            });
+            block.instance.traverse(c => { if (c.isMesh) this.deepDispose(c); });
         }
 
         if (block.dispose) block.dispose()
@@ -824,20 +830,16 @@ export default class GamePage {
     }
 
     this.blocks.forEach(block => {
-      let deltaX = 0;
-      let deltaZ = 0;
+      let deltaX = 0; let deltaZ = 0;
       const prevX = block.instance.position.x;
       const prevZ = block.instance.position.z;
 
-      let shakeX = 0;
-      let shakeZ = 0;
+      let shakeX = 0; let shakeZ = 0;
       if (block.isCollapsing && block.triggeredCollapse && !block.hasCollapsed) {
-          shakeX = block.shakeOffsetX || 0;
-          shakeZ = block.shakeOffsetZ || 0;
+          shakeX = block.shakeOffsetX || 0; shakeZ = block.shakeOffsetZ || 0;
       }
 
-      let newVirtualX = block.baseX;
-      let newVirtualZ = block.baseZ;
+      let newVirtualX = block.baseX; let newVirtualZ = block.baseZ;
 
       if (block.isMoving && !block.hasCollapsed) {
           const moveAxis = block.moveAxis;
@@ -855,8 +857,7 @@ export default class GamePage {
       }
 
       if (block.hasFeverItem && block.feverOrb && !block.hasCollapsed) {
-          block.feverOrb.rotation.y += 0.05;
-          block.feverOrb.rotation.z += 0.02;
+          block.feverOrb.rotation.y += 0.05; block.feverOrb.rotation.z += 0.02;
           block.feverOrb.position.y = (blockConf.height / 2) + 3 + Math.sin(now * 0.005) * 0.5;
       }
 
@@ -864,8 +865,7 @@ export default class GamePage {
           block.instance.position.x = newVirtualX + shakeX;
           block.instance.position.z = newVirtualZ + shakeZ;
           
-          deltaX = block.instance.position.x - prevX;
-          deltaZ = block.instance.position.z - prevZ;
+          deltaX = block.instance.position.x - prevX; deltaZ = block.instance.position.z - prevZ;
 
           if (block === currentStandingBlock && this.bottle && (this.bottle.status === 'stop' || this.bottle.status === 'prepare') && !this.isSliding) {
               this.bottle.obj.position.x += deltaX;
@@ -877,9 +877,7 @@ export default class GamePage {
     this.scene.render()
     if (this.bottle) this.bottle.update()
     
-    // ✨ 性能优化：使用缓存的 bound 函数，防止每帧都产生新的 function 导致垃圾回收卡顿
     requestAnimationFrame(this.renderBound)
-
     scoreText.updateCameraCompensation()
   }
 

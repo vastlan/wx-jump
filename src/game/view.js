@@ -4,7 +4,7 @@ import GameOverPage from '../pages/game-over-page.js'
 import StartPage from '../pages/start-page.js'
 import StorePage from '../pages/store-page.js' 
 import RankPage from '../pages/rank-page.js' 
-import scoreText from '../objects/score-text.js' // ✨ 引入计分板组件
+import scoreText from '../objects/score-text.js' 
 
 class GameView {
   constructor() {
@@ -40,14 +40,13 @@ class GameView {
     this.rankPage.init()
   }
 
-  // ✨ 核心修复：一键隐藏所有视图层，包括悬浮的分数
   hideAll() {
     if (this.gameOverPage) this.gameOverPage.hide()
     if (this.gamePage) this.gamePage.hide()
     if (this.storePage) this.storePage.hide() 
     if (this.startPage) this.startPage.hide()
     if (this.rankPage) this.rankPage.hide()
-    if (scoreText) scoreText.hide() // 隐藏局内分数
+    if (scoreText) scoreText.hide() 
   }
 
   showStartPage() {
@@ -59,7 +58,14 @@ class GameView {
     this.hideAll();
     this.gamePage.restart()
     this.gamePage.show()
-    // ✨ 只有在进入游戏主环节时，才让分数现身
+    if (scoreText) scoreText.show() 
+  }
+
+  // ✨ 新增：不重置分数，直接在局内复活
+  reviveGamePage() {
+    this.hideAll();
+    this.gamePage.revive() // 核心：调用复活而不是 restart
+    this.gamePage.show()
     if (scoreText) scoreText.show() 
   }
 

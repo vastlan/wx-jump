@@ -18,13 +18,16 @@ class GameController {
       gameRestart: () => this.gameModel.setStage('game-page'),
       goHome: () => this.gameModel.setStage('start-page'),
       showStore: () => this.gameModel.setStage('store-page'),
-      showRank: () => this.gameModel.setStage('rank-page') // ✨ 新增路由
+      showRank: () => this.gameModel.setStage('rank-page'),
+      
+      // ✨ 新增：触发复活，切换路由到专用的复活状态
+      gameRevive: () => this.gameModel.setStage('game-revive') 
     }
 
     const startPageCallbacks = {
       gameStart: () => this.gameModel.setStage('game-page'),
       showStore: () => this.gameModel.setStage('store-page'),
-      showRank: () => this.gameModel.setStage('rank-page') // ✨ 新增路由
+      showRank: () => this.gameModel.setStage('rank-page')
     }
 
     const modalCallbacks = {
@@ -35,12 +38,11 @@ class GameController {
     this.gameView.initGameOverPage(gameOverPageCallbacks)
     this.gameView.initStartPage(startPageCallbacks) 
     this.gameView.initStorePage(modalCallbacks) 
-    this.gameView.initRankPage(modalCallbacks) // ✨ 注入相同回调
+    this.gameView.initRankPage(modalCallbacks) 
 
     this.gameModel.stageChanged.attach((sender, args) => {
       const stageName = args.stage
 
-      // 记录进入模态框之前的状态
       if (stageName !== 'store-page' && stageName !== 'rank-page') {
           this.previousStage = stageName;
       }
@@ -50,7 +52,8 @@ class GameController {
         case 'game-page': this.gameView.showGamePage(); break;
         case 'game-over-page': this.gameView.showGameOverPage(); break;
         case 'store-page': this.gameView.showStorePage(); break;
-        case 'rank-page': this.gameView.showRankPage(); break; // ✨ 触发渲染
+        case 'rank-page': this.gameView.showRankPage(); break; 
+        case 'game-revive': this.gameView.reviveGamePage(); break; // ✨ 处理复活显示
         default: break;
       }
     })

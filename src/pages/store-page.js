@@ -4,9 +4,7 @@ import API from '../services/api'
 import gameModel from '../game/model'
 import sceneConf from '../../confs/scene-conf'
 
-const comicFont = `"Comic Sans MS", "Chalkboard SE", "Marker Felt", "PingFang SC", "Microsoft YaHei", sans-serif`;
-const INK_COLOR = '#2A2A2A'; 
-const PAPER_COLOR = '#FDF9F1'; 
+const safeFont = `"-apple-system", BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif`;
 
 export default class StorePage {
     constructor(callbacks) {
@@ -79,32 +77,28 @@ export default class StorePage {
         this.instance.visible = false;
     }
 
-    drawSketchBox(ctx, x, y, w, h, radius) {
-        ctx.fillStyle = INK_COLOR;
-        this.roundRect(ctx, x + 4, y + 4, w, h, radius);
-        ctx.fill();
-
-        ctx.fillStyle = PAPER_COLOR;
-        this.roundRect(ctx, x, y, w, h, radius);
-        ctx.fill();
-
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = INK_COLOR;
+    drawSketchyBox(ctx, x, y, w, h) {
+        ctx.beginPath();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#000000';
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.moveTo(x + 2, y + 3);
+        ctx.lineTo(x + w + 1, y - 1);
+        ctx.lineTo(x + w - 1, y + h + 2);
+        ctx.lineTo(x - 2, y + h - 1);
+        ctx.lineTo(x + 3, y - 2); 
         ctx.stroke();
     }
 
-    roundRect(ctx, x, y, width, height, radius) {
+    drawSketchyLine(ctx, x, y, w) {
         ctx.beginPath();
-        ctx.moveTo(x + radius, y);
-        ctx.lineTo(x + width - radius, y);
-        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-        ctx.lineTo(x + width, y + height - radius);
-        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-        ctx.lineTo(x + radius, y + height);
-        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-        ctx.lineTo(x, y + radius);
-        ctx.quadraticCurveTo(x, y, x + radius, y);
-        ctx.closePath();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#000000';
+        ctx.moveTo(x, y);
+        // 画一条微弯的分割线
+        ctx.quadraticCurveTo(x + w / 2, y + 3, x + w, y - 1);
+        ctx.stroke();
     }
 
     draw() {
@@ -115,9 +109,11 @@ export default class StorePage {
 
         this.ctx.clearRect(0, 0, w, h);
 
-        this.ctx.fillStyle = 'rgba(253, 249, 241, 0.85)';
+        // 外部画纸遮罩 (轻微变暗)
+        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
         this.ctx.fillRect(0, 0, w, h);
 
+        // 像一张便签纸一样的模态框
         const modalW = w * 0.85;
         const modalH = h * 0.70;
         const modalX = (w - modalW) / 2;
@@ -125,24 +121,20 @@ export default class StorePage {
 
         this.ui.modalBox = { x: modalX, y: modalY, w: modalW, h: modalH };
 
-        // 核心商城面板 (手绘风格)
-        this.drawSketchBox(this.ctx, modalX, modalY, modalW, modalH, 16);
+        this.ctx.fillStyle = '#FFFFFF'; 
+        this.ctx.fillRect(modalX, modalY, modalW, modalH);
+        this.drawSketchyBox(this.ctx, modalX, modalY, modalW, modalH);
 
-        // 顶栏分隔线
-        this.ctx.beginPath();
-        this.ctx.moveTo(modalX, modalY + 60);
-        this.ctx.lineTo(modalX + modalW, modalY + 60);
-        this.ctx.lineWidth = 3;
-        this.ctx.strokeStyle = INK_COLOR;
-        this.ctx.stroke();
+        // 标题区分割线
+        this.drawSketchyLine(this.ctx, modalX + 10, modalY + 60, modalW - 20);
 
-        this.ctx.fillStyle = INK_COLOR;
-        this.ctx.font = `bold 22px ${comicFont}`;
+        this.ctx.fillStyle = '#000000';
+        this.ctx.font = `900 24px ${safeFont}`;
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
-        this.ctx.fillText('商城', w / 2, modalY + 30);
+        this.ctx.fillText('黑心小卖部', w / 2, modalY + 30);
 
-        // 关闭文字按钮
+        // 粗糙的关闭符号
         const closeAreaSize = 60;
         this.ui.closeBtn = { 
             x: modalX + modalW - closeAreaSize, 
@@ -150,16 +142,16 @@ export default class StorePage {
             w: closeAreaSize, 
             h: 60 
         };
-        this.ctx.font = `bold 16px ${comicFont}`;
-        this.ctx.fillText('关闭', this.ui.closeBtn.x + closeAreaSize / 2, modalY + 30);
+        this.ctx.font = `normal 24px ${safeFont}`;
+        this.ctx.fillText('X', this.ui.closeBtn.x + closeAreaSize / 2, modalY + 30);
 
-        this.ctx.font = `bold 16px ${comicFont}`;
+        this.ctx.font = `bold 16px ${safeFont}`;
         this.ctx.textAlign = 'left';
-        this.ctx.fillText(`拥有积分: ${gameModel.coins}`, modalX + 20, modalY + 85);
+        this.ctx.fillText(`资产: ${gameModel.coins}`, modalX + 20, modalY + 90);
 
         if (this.isLoading) {
             this.ctx.textAlign = 'center';
-            this.ctx.fillText('装载中...', w / 2, modalY + modalH / 2);
+            this.ctx.fillText('找货中...', w / 2, modalY + modalH / 2);
             this.texture.needsUpdate = true;
             return;
         }
@@ -167,53 +159,51 @@ export default class StorePage {
         this.buyBtnHitboxes = [];
         const itemH = h * 0.12;
         const itemSpacing = 15;
-        let startY = modalY + 115;
+        let startY = modalY + 120;
 
         for (let i = 0; i < this.items.length; i++) {
             const item = this.items[i];
             const isOwned = this.inventory.includes(item.id);
 
-            // 卡片项手绘框
-            this.drawSketchBox(this.ctx, modalX + 15, startY, modalW - 30, itemH, 10);
+            // 商品不再用框包起来，而是用极简的分割线隔开
+            this.ctx.fillStyle = '#000000'; 
+            this.ctx.font = `900 18px ${safeFont}`;
+            this.ctx.fillText(item.name, modalX + 20, startY + itemH * 0.35);
 
-            this.ctx.fillStyle = INK_COLOR; 
-            this.ctx.font = `bold 18px ${comicFont}`;
-            this.ctx.fillText(item.name, modalX + 35, startY + itemH * 0.35);
-
-            this.ctx.fillStyle = '#666666'; 
-            this.ctx.font = `12px ${comicFont}`;
-            this.ctx.fillText(item.desc, modalX + 35, startY + itemH * 0.7);
+            this.ctx.fillStyle = '#555555'; // 铅笔灰描述
+            this.ctx.font = `normal 14px ${safeFont}`;
+            this.ctx.fillText(item.desc, modalX + 20, startY + itemH * 0.7);
 
             const btnW = 75;
-            const btnH = 34;
-            const btnX = modalX + modalW - 15 - btnW - 10;
+            const btnH = 36;
+            const btnX = modalX + modalW - 20 - btnW;
             const btnY = startY + (itemH - btnH) / 2;
 
             if (isOwned) {
-                // 已拥有：去掉硬底阴影
-                this.ctx.fillStyle = '#DDDDDD';
-                this.roundRect(this.ctx, btnX, btnY, btnW, btnH, 8);
-                this.ctx.fill();
-                this.ctx.lineWidth = 2;
-                this.ctx.strokeStyle = INK_COLOR;
-                this.ctx.stroke();
-
                 this.ctx.fillStyle = '#888888';
-                this.ctx.font = `bold 14px ${comicFont}`;
+                this.ctx.font = `bold 16px ${safeFont}`;
                 this.ctx.textAlign = 'center';
+                // 用横线划掉价格代表已拥有
                 this.ctx.fillText('已拥有', btnX + btnW / 2, btnY + btnH / 2);
+                this.drawSketchyLine(this.ctx, btnX, btnY + btnH / 2, btnW);
             } else {
-                // 购买按钮：硬核漫画边框
-                this.drawSketchBox(this.ctx, btnX, btnY, btnW, btnH, 8);
-
-                this.ctx.fillStyle = INK_COLOR;
-                this.ctx.font = `bold 14px ${comicFont}`;
+                // 购买框
+                this.drawSketchyBox(this.ctx, btnX, btnY, btnW, btnH);
+                this.ctx.fillStyle = '#000000';
+                this.ctx.font = `bold 16px ${safeFont}`;
                 this.ctx.textAlign = 'center';
-                this.ctx.fillText(`${item.price} 积分`, btnX + btnW / 2, btnY + btnH / 2);
+                this.ctx.fillText(`${item.price}`, btnX + btnW / 2, btnY + btnH / 2);
                 
                 this.buyBtnHitboxes.push({ item, x: btnX, y: btnY, w: btnW, h: btnH });
             }
+
             this.ctx.textAlign = 'left';
+            
+            // 底部画一条随意的分割线
+            if (i < this.items.length - 1) {
+                this.drawSketchyLine(this.ctx, modalX + 15, startY + itemH + itemSpacing / 2, modalW - 30);
+            }
+            
             startY += itemH + itemSpacing;
         }
 
@@ -236,16 +226,17 @@ export default class StorePage {
                 clientY = e.clientY
             }
 
+            // 外部遮罩或关闭按钮
             const { modalBox, closeBtn } = this.ui;
             const isOutside = (clientX < modalBox.x || clientX > modalBox.x + modalBox.w || clientY < modalBox.y || clientY > modalBox.y + modalBox.h);
-            const isClickingClose = (clientX >= closeBtn.x - 10 && clientX <= closeBtn.x + closeBtn.w + 10 && clientY >= closeBtn.y - 10 && clientY <= closeBtn.y + closeBtn.h + 10);
+            const isClickingClose = (clientX >= closeBtn.x - 15 && clientX <= closeBtn.x + closeBtn.w + 15 && clientY >= closeBtn.y - 15 && clientY <= closeBtn.y + closeBtn.h + 15);
 
             if (isOutside || isClickingClose) {
                 if (this.callbacks && this.callbacks.onBack) this.callbacks.onBack();
                 return;
             }
 
-            const padding = 15;
+            const padding = 20;
             for (let i = 0; i < this.buyBtnHitboxes.length; i++) {
                 const btn = this.buyBtnHitboxes[i];
                 if (clientX >= btn.x - padding && clientX <= btn.x + btn.w + padding &&
@@ -266,17 +257,17 @@ export default class StorePage {
 
     async buyItem(item) {
         if (gameModel.coins < item.price) {
-            if (typeof wx !== 'undefined') wx.showToast({ title: '积分不足', icon: 'none' });
+            if (typeof wx !== 'undefined') wx.showToast({ title: '太穷了', icon: 'none' });
             return;
         }
-        if (typeof wx !== 'undefined') wx.showLoading({ title: '兑换中...', mask: true });
+        if (typeof wx !== 'undefined') wx.showLoading({ title: '交易中...', mask: true });
         
         const res = await API.buyItem(item.id, item.price);
         if (typeof wx !== 'undefined') wx.hideLoading();
 
         if (res.success) {
             this.inventory = res.inventory;
-            if (typeof wx !== 'undefined') wx.showToast({ title: '兑换成功！', icon: 'success' });
+            if (typeof wx !== 'undefined') wx.showToast({ title: '买到了！', icon: 'success' });
             this.draw(); 
         } else {
             if (typeof wx !== 'undefined') wx.showToast({ title: res.msg, icon: 'none' });

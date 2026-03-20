@@ -3,11 +3,10 @@ import { camera } from '../scene/index'
 import gameModel from '../game/model'
 import sceneConf from '../../confs/scene-conf' 
 
-// ✨ 核心修复：采用全平台绝对兼容的系统级最高级字体栈，杜绝在 Android/iOS 上降级变形
-const systemFont = `"-apple-system", BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "STHeiti", "Microsoft YaHei", Tahoma, Arial, sans-serif`;
-
-const INK_COLOR = '#2A2A2A'; // 暖黑色墨水
-const PAPER_COLOR = '#FDF9F1'; // 暖白纸张底色
+// 移动端绝对安全字体栈，保证复杂汉字完美渲染
+const safeFont = `"-apple-system", BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif`;
+const INK_COLOR = '#1A1A1A'; // 略微偏软的墨黑色，比纯黑更有质感
+const PAPER_COLOR = '#FFFFFF'; // 纯白底色
 
 export default class StartPage {
   constructor(callbacks) {
@@ -50,126 +49,161 @@ export default class StartPage {
     this.instance.visible = false
     
     camera.instance.add(this.instance)
-
-    this.draw()
     this.bindTouchEvent()
   }
 
-  // 漫画风矩形绘制器 (带偏移硬底阴影 + 粗描边)
-  drawSketchBox(ctx, x, y, w, h, radius) {
-    // 1. 硬质手绘阴影 (绝对偏移 4px)
-    ctx.fillStyle = INK_COLOR;
-    this.roundRect(ctx, x + 4, y + 4, w, h, radius);
-    ctx.fill();
-
-    // 2. 纸张底色填充
-    ctx.fillStyle = PAPER_COLOR;
-    this.roundRect(ctx, x, y, w, h, radius);
-    ctx.fill();
-
-    // 3. 粗黑线条描边
-    ctx.lineWidth = 3;
+  // 漫画风矩形绘制器
+  drawSketchyBox(ctx, x, y, w, h) {
+    ctx.beginPath();
+    ctx.lineWidth = 2.5;
     ctx.strokeStyle = INK_COLOR;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    ctx.moveTo(x + 2, y + 4);
+    ctx.lineTo(x + w + 2, y - 2);
+    ctx.lineTo(x + w - 2, y + h + 3);
+    ctx.lineTo(x - 3, y + h - 1);
+    ctx.lineTo(x + 4, y - 2); 
     ctx.stroke();
   }
 
-  roundRect(ctx, x, y, width, height, radius) {
+  drawSketchyLine(ctx, x, y, w) {
     ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + width - radius, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-    ctx.lineTo(x + width, y + height - radius);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-    ctx.lineTo(x + radius, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
-    ctx.closePath();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = INK_COLOR;
+    ctx.moveTo(x - 5, y);
+    ctx.quadraticCurveTo(x + w / 2, y + 4, x + w + 5, y - 2);
+    ctx.stroke();
+  }
+
+  // ✨ 核心视觉算法：完美防糊的贴纸字渲染器
+  drawStickerText(ctx, text, x, y, fontSize) {
+    ctx.font = `bold ${fontSize}px ${safeFont}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    const shadowOffset = Math.max(3, Math.floor(fontSize * 0.08));
+    const strokeWidth = Math.max(6, Math.floor(fontSize * 0.18));
+
+    // 1. 底层：硬实黑阴影
+    ctx.fillStyle = INK_COLOR;
+    ctx.fillText(text, x + shadowOffset, y + shadowOffset);
+
+    // 2. 中层：极粗的纯白描边垫片（向外撑开，绝对不挤压内芯）
+    ctx.lineWidth = strokeWidth;
+    ctx.strokeStyle = PAPER_COLOR;
+    ctx.strokeText(text, x, y);
+
+    // 3. 顶层：极度纯净的黑色内芯（一笔一画完美保留）
+    ctx.fillStyle = INK_COLOR;
+    ctx.fillText(text, x, y);
   }
 
   draw() {
-    this.ctx.clearRect(0, 0, this.width, this.height)
+    this.ctx.clearRect(0, 0, this.width, this.height);
     
-    // 半透明治愈系暖白遮罩，透出背后 3D 世界
-    this.ctx.fillStyle = 'rgba(253, 249, 241, 0.85)'
-    this.ctx.fillRect(0, 0, this.width, this.height)
+    // ✨ 高透视野：透明度骤降至 0.35，游戏场景一览无余
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+    this.ctx.fillRect(0, 0, this.width, this.height);
 
-    const cx = this.width / 2
+    const cx = this.width / 2;
 
     // ==========================================
-    // ✨ 1. 手机端原生自适应 Logo 渲染器
+    // ✨ 1. 静态艺术 Logo："薅薅跳"
     // ==========================================
-    const titleText = '省一跳';
-    const titleFontSize = Math.floor(this.width * 0.16); // 稍微缩减基准字号，防止粗描边撑爆
-    const titleY = this.height * 0.22;
+    const titleFontSize = Math.floor(this.width * 0.17);
+    const titleY = this.height * 0.25;
+    const spacing = titleFontSize * 1.05;
 
-    // 强制使用系统最粗字重 900
-    this.ctx.font = `900 ${titleFontSize}px ${systemFont}`;
-    this.ctx.textAlign = 'center';
-    this.ctx.textBaseline = 'middle';
-    
-    // 强制圆润拐角，防止在 Android 上产生尖锐毛刺
-    this.ctx.lineJoin = 'round';
-    this.ctx.lineCap = 'round';
-    this.ctx.miterLimit = 2; 
+    // 精心设计的静态排版数据：字符, 旋转弧度, Y轴微调
+    const logoData = [
+        { char: '薅', rot: -0.08, dy: 6 },
+        { char: '薅', rot: 0.05, dy: -8 },
+        { char: '跳', rot: -0.04, dy: 4 }
+    ];
 
-    // A. 绘制深色硬实立体阴影 (比例精调)
-    const shadowOffset = Math.max(3, Math.floor(this.width * 0.012));
-    this.ctx.lineWidth = titleFontSize * 0.12; // 调整描边厚度，防止糊字
-    this.ctx.strokeStyle = INK_COLOR;
-    this.ctx.fillStyle = INK_COLOR;
-    this.ctx.strokeText(titleText, cx + shadowOffset, titleY + shadowOffset);
-    this.ctx.fillText(titleText, cx + shadowOffset, titleY + shadowOffset);
+    for (let i = 0; i < logoData.length; i++) {
+        this.ctx.save();
+        const charX = cx + (i - 1) * spacing;
+        const item = logoData[i];
+        
+        this.ctx.translate(charX, titleY + item.dy);
+        this.ctx.rotate(item.rot);
+        
+        this.drawStickerText(this.ctx, item.char, 0, 0, titleFontSize);
+        
+        // 艺术点缀：在最后一个字旁边画三条“漫画强调线”
+        if (i === 2) {
+            this.ctx.beginPath();
+            this.ctx.lineWidth = 3;
+            this.ctx.strokeStyle = INK_COLOR;
+            const r = titleFontSize * 0.5;
+            // 右上角三条射线
+            this.ctx.moveTo(r + 5, -r); this.ctx.lineTo(r + 20, -r - 15);
+            this.ctx.moveTo(r + 15, -r + 10); this.ctx.lineTo(r + 35, -r - 5);
+            this.ctx.moveTo(r + 15, -r + 30); this.ctx.lineTo(r + 30, -r + 25);
+            this.ctx.stroke();
+        }
+        this.ctx.restore();
+    }
 
-    // B. 绘制前景纯白粗边框 (形成贴纸底色垫片)
-    this.ctx.lineWidth = titleFontSize * 0.08; // 保证白边比黑阴影细一圈，层次分明
-    this.ctx.strokeStyle = '#FFFFFF'; 
-    this.ctx.strokeText(titleText, cx, titleY);
+    // 2. 历史记录 (极简线条托底)
+    const scoreFontSize = Math.max(14, Math.floor(this.width * 0.04));
+    const scoreY = titleY + titleFontSize * 1.1;
+    this.drawStickerText(this.ctx, `最高记录: ${gameModel.highestScore}`, cx, scoreY, scoreFontSize);
+    // 粗糙下划线
+    const lineW = this.ctx.measureText(`最高记录: ${gameModel.highestScore}`).width * 1.2;
+    this.drawSketchyLine(this.ctx, cx - lineW/2, scoreY + 12, lineW);
 
-    // C. 绘制前景墨色内核
-    this.ctx.fillStyle = INK_COLOR;
-    this.ctx.fillText(titleText, cx, titleY);
     // ==========================================
-
-    // 2. 历史最高分 (使用统一的系统字体)
-    this.ctx.fillStyle = '#888888';
-    const scoreFontSize = Math.max(14, Math.floor(this.width * 0.042));
-    this.ctx.font = `bold ${scoreFontSize}px ${systemFont}`;
-    this.ctx.fillText(`最高记录: ${gameModel.highestScore}`, cx, titleY + titleFontSize * 1.2);
-
-    // 3. 漫画风主按钮：开始游戏
-    const playW = this.width * 0.55;
-    const playH = this.height * 0.075;
-    const playY = this.height * 0.54;
+    // 3. 主按钮：开始游戏
+    // ==========================================
+    const playW = this.width * 0.45;
+    const playH = this.height * 0.07;
+    const playY = this.height * 0.55;
     const playX = cx - playW / 2;
 
-    this.drawSketchBox(this.ctx, playX, playY, playW, playH, playH / 2);
-
-    this.ctx.fillStyle = INK_COLOR; 
-    this.ctx.font = `bold ${Math.floor(this.width * 0.055)}px ${systemFont}`;
-    this.ctx.fillText('开始游戏', cx, playY + playH / 2);
-    this.hitboxes.play = { x: playX, y: playY, w: playW, h: playH }
-
-    // 4. 漫画风副按钮矩阵
-    const subBtnW = this.width * 0.25;
-    const subBtnH = this.height * 0.06;
-    const subBtnY = playY + playH + this.height * 0.035;
+    // 白底垫片
+    this.ctx.fillStyle = PAPER_COLOR;
+    this.ctx.fillRect(playX, playY, playW, playH);
+    this.drawSketchyBox(this.ctx, playX, playY, playW, playH);
     
+    this.ctx.fillStyle = INK_COLOR;
+    this.ctx.font = `bold ${Math.floor(this.width * 0.06)}px ${safeFont}`;
+    this.ctx.fillText('开始游戏', cx, playY + playH / 2);
+    
+    this.hitboxes.play = { x: playX, y: playY, w: playW, h: playH };
+
+    // ==========================================
+    // 4. 副按钮组：商城 & 排行榜
+    // ==========================================
+    const subBtnW = this.width * 0.18;
+    const subBtnH = this.height * 0.055;
+    const subBtnY = playY + playH + this.height * 0.04;
+    
+    // 严格两端对齐
     const storeX = playX;
     const rankX = playX + playW - subBtnW;
 
-    this.drawSketchBox(this.ctx, storeX, subBtnY, subBtnW, subBtnH, subBtnH / 2);
-    this.drawSketchBox(this.ctx, rankX, subBtnY, subBtnW, subBtnH, subBtnH / 2);
+    this.ctx.fillStyle = PAPER_COLOR;
+    this.ctx.fillRect(storeX, subBtnY, subBtnW, subBtnH);
+    this.ctx.fillRect(rankX, subBtnY, subBtnW, subBtnH);
+
+    this.drawSketchyBox(this.ctx, storeX, subBtnY, subBtnW, subBtnH);
+    this.drawSketchyBox(this.ctx, rankX, subBtnY, subBtnW, subBtnH);
 
     this.ctx.fillStyle = INK_COLOR;
-    this.ctx.font = `bold ${Math.floor(this.width * 0.04)}px ${systemFont}`;
+    this.ctx.font = `bold ${Math.floor(this.width * 0.04)}px ${safeFont}`;
     this.ctx.fillText('商城', storeX + subBtnW / 2, subBtnY + subBtnH / 2);
     this.ctx.fillText('排行榜', rankX + subBtnW / 2, subBtnY + subBtnH / 2);
 
     this.hitboxes.store = { x: storeX, y: subBtnY, w: subBtnW, h: subBtnH };
     this.hitboxes.rank = { x: rankX, y: subBtnY, w: subBtnW, h: subBtnH };
 
-    this.texture.needsUpdate = true
+    this.texture.needsUpdate = true;
   }
 
   bindTouchEvent() {
@@ -188,21 +222,20 @@ export default class StartPage {
         clientY = e.clientY
       }
 
-      const padding = 15 
+      // 胖手指保护
+      const padding = 20 
       const checkHit = (box) => clientX >= box.x - padding && clientX <= box.x + box.w + padding && clientY >= box.y - padding && clientY <= box.y + box.h + padding;
 
       if (checkHit(this.hitboxes.play)) {
         if (this.callbacks && this.callbacks.gameStart) this.callbacks.gameStart()
         return
       }
-
       if (checkHit(this.hitboxes.store)) {
         if (this.callbacks && this.callbacks.showStore) this.callbacks.showStore()
         return
       }
-
       if (checkHit(this.hitboxes.rank)) {
-        if (typeof wx !== 'undefined' && wx.showToast) wx.showToast({ title: '排行榜开发中', icon: 'none' })
+        if (typeof wx !== 'undefined' && wx.showToast) wx.showToast({ title: '还在画...', icon: 'none' })
         return
       }
     }
@@ -216,13 +249,13 @@ export default class StartPage {
   }
 
   show() {
-    this.isVisible = true
-    this.draw() 
-    this.instance.visible = true
+    this.isVisible = true;
+    this.draw(); 
+    this.instance.visible = true;
   }
 
   hide() {
-    this.isVisible = false
-    this.instance.visible = false
+    this.isVisible = false;
+    this.instance.visible = false;
   }
 }

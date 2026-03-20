@@ -3,9 +3,9 @@ import { camera } from '../scene/index'
 import gameModel from '../game/model'
 import sceneConf from '../../confs/scene-conf' 
 
-const comicFont = `"Comic Sans MS", "Chalkboard SE", "Marker Felt", "PingFang SC", "Microsoft YaHei", sans-serif`;
-const INK_COLOR = '#2A2A2A'; 
-const PAPER_COLOR = '#FDF9F1'; 
+const safeFont = `"-apple-system", BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif`;
+const INK_COLOR = '#1A1A1A'; 
+const PAPER_COLOR = '#FFFFFF'; 
 
 export default class GameOverPage {
   constructor(callbacks) {
@@ -53,101 +53,131 @@ export default class GameOverPage {
     this.bindTouchEvent()
   }
 
-  drawSketchBox(ctx, x, y, w, h, radius) {
-    ctx.fillStyle = INK_COLOR;
-    this.roundRect(ctx, x + 4, y + 4, w, h, radius);
-    ctx.fill();
-
-    ctx.fillStyle = PAPER_COLOR;
-    this.roundRect(ctx, x, y, w, h, radius);
-    ctx.fill();
-
-    ctx.lineWidth = 3;
+  drawSketchyBox(ctx, x, y, w, h) {
+    ctx.beginPath();
+    ctx.lineWidth = 2.5;
     ctx.strokeStyle = INK_COLOR;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.moveTo(x + 2, y + 3);
+    ctx.lineTo(x + w + 1, y - 1);
+    ctx.lineTo(x + w - 1, y + h + 2);
+    ctx.lineTo(x - 2, y + h - 1);
+    ctx.lineTo(x + 3, y - 2); 
     ctx.stroke();
   }
 
-  roundRect(ctx, x, y, width, height, radius) {
-    ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + width - radius, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-    ctx.lineTo(x + width, y + height - radius);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-    ctx.lineTo(x + radius, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
-    ctx.closePath();
+  drawStickerText(ctx, text, x, y, fontSize) {
+    ctx.font = `bold ${fontSize}px ${safeFont}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    const shadowOffset = Math.max(3, Math.floor(fontSize * 0.08));
+    const strokeWidth = Math.max(6, Math.floor(fontSize * 0.18));
+
+    ctx.fillStyle = INK_COLOR;
+    ctx.fillText(text, x + shadowOffset, y + shadowOffset);
+    ctx.lineWidth = strokeWidth;
+    ctx.strokeStyle = PAPER_COLOR;
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = INK_COLOR;
+    ctx.fillText(text, x, y);
   }
 
   draw() {
     this.ctx.clearRect(0, 0, this.width, this.height)
     
-    this.ctx.fillStyle = 'rgba(253, 249, 241, 0.90)'
+    // ✨ 高透视野：死也要死得明白
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.45)'
     this.ctx.fillRect(0, 0, this.width, this.height)
 
     const cx = this.width / 2
 
-    this.ctx.fillStyle = INK_COLOR
-    this.ctx.font = `bold ${Math.floor(this.width * 0.05)}px ${comicFont}`
-    this.ctx.textAlign = 'center'
-    this.ctx.textBaseline = 'middle'
-    this.ctx.fillText('本次得分', cx, this.height * 0.15)
+    // ==========================================
+    // 1. 嘲讽式贴纸排版
+    // ==========================================
+    const titleY = this.height * 0.18;
+    const titleSize = Math.floor(this.width * 0.05);
+    this.drawStickerText(this.ctx, '本次得分', cx, titleY, titleSize);
+    
+    // 乱划线
+    this.ctx.beginPath();
+    this.ctx.lineWidth = 4;
+    this.ctx.strokeStyle = INK_COLOR;
+    this.ctx.moveTo(cx - 50, titleY + 5);
+    this.ctx.lineTo(cx + 60, titleY - 5);
+    this.ctx.stroke();
 
-    const scoreFontSize = Math.floor(this.width * 0.30) 
-    this.ctx.font = `bold ${scoreFontSize}px ${comicFont}`
-    this.ctx.fillText(gameModel.score.toString(), cx, this.height * 0.28)
+    // 旁边写着大大的“寄了”
+    this.ctx.save();
+    this.ctx.translate(cx, titleY + this.height * 0.06);
+    this.ctx.rotate(-0.1);
+    this.drawStickerText(this.ctx, '寄 了', 0, 0, Math.floor(this.width * 0.12));
+    this.ctx.restore();
 
-    this.ctx.fillStyle = '#888888' 
-    const highScoreFontSize = Math.floor(this.width * 0.045)
-    this.ctx.font = `${highScoreFontSize}px ${comicFont}`
-    this.ctx.fillText(`最高记录: ${gameModel.highestScore}`, cx, this.height * 0.40)
+    // 分数展示
+    const scoreFontSize = Math.floor(this.width * 0.22);
+    this.drawStickerText(this.ctx, gameModel.score.toString(), cx, this.height * 0.35, scoreFontSize);
 
-    const baseWidth = this.width * 0.60 
-    const btnHeight = this.height * 0.075     
-    const gap = this.height * 0.035     
+    // ==========================================
+    // 2. 主按钮布局 (白底垫片 + 线框)
+    // ==========================================
+    const baseWidth = this.width * 0.55;
+    const btnHeight = this.height * 0.07;
+    const gap = this.height * 0.03;
     const baseX = cx - baseWidth / 2;
 
-    // ✨ 1. 再玩一局 
-    const replayY = this.height * 0.48;
-    this.drawSketchBox(this.ctx, baseX, replayY, baseWidth, btnHeight, btnHeight / 2);
+    const replayY = this.height * 0.50;
+    this.ctx.fillStyle = PAPER_COLOR; this.ctx.fillRect(baseX, replayY, baseWidth, btnHeight);
+    this.drawSketchyBox(this.ctx, baseX, replayY, baseWidth, btnHeight);
     this.ctx.fillStyle = INK_COLOR;
-    this.ctx.font = `bold ${Math.floor(this.width * 0.05)}px ${comicFont}`;
+    this.ctx.font = `bold ${Math.floor(this.width * 0.05)}px ${safeFont}`;
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
     this.ctx.fillText('再玩一局', cx, replayY + btnHeight / 2);
     this.hitboxes.replay = { x: baseX, y: replayY, w: baseWidth, h: btnHeight };
 
-    // ✨ 2. 分享复活
     const shareY = replayY + btnHeight + gap;
-    this.drawSketchBox(this.ctx, baseX, shareY, baseWidth, btnHeight, btnHeight / 2);
+    this.ctx.fillStyle = PAPER_COLOR; this.ctx.fillRect(baseX, shareY, baseWidth, btnHeight);
+    this.drawSketchyBox(this.ctx, baseX, shareY, baseWidth, btnHeight);
     this.ctx.fillStyle = INK_COLOR;
     this.ctx.fillText('分享好友复活', cx, shareY + btnHeight / 2);
     this.hitboxes.share = { x: baseX, y: shareY, w: baseWidth, h: btnHeight };
 
-    // ✨ 3. 底部功能矩阵 (三等分，完美对齐 baseWidth 两端！)
-    const subBtnY = shareY + btnHeight + gap * 1.5;
-    const subGap = 12; // 按钮间距
+    // ==========================================
+    // 3. 底部功能矩阵 (三等分，完美对齐)
+    // ==========================================
+    const subBtnY = shareY + btnHeight + gap * 1.2;
+    const subGap = 12; 
     const subBtnW = (baseWidth - subGap * 2) / 3;
+    const subBtnH = btnHeight * 0.8;
     
     const homeX = baseX;
     const storeX = baseX + subBtnW + subGap;
     const rankX = baseX + baseWidth - subBtnW;
 
-    this.drawSketchBox(this.ctx, homeX, subBtnY, subBtnW, btnHeight * 0.75, (btnHeight * 0.75) / 2);
-    this.drawSketchBox(this.ctx, storeX, subBtnY, subBtnW, btnHeight * 0.75, (btnHeight * 0.75) / 2);
-    this.drawSketchBox(this.ctx, rankX, subBtnY, subBtnW, btnHeight * 0.75, (btnHeight * 0.75) / 2);
+    this.ctx.fillStyle = PAPER_COLOR;
+    this.ctx.fillRect(homeX, subBtnY, subBtnW, subBtnH);
+    this.ctx.fillRect(storeX, subBtnY, subBtnW, subBtnH);
+    this.ctx.fillRect(rankX, subBtnY, subBtnW, subBtnH);
+
+    this.drawSketchyBox(this.ctx, homeX, subBtnY, subBtnW, subBtnH);
+    this.drawSketchyBox(this.ctx, storeX, subBtnY, subBtnW, subBtnH);
+    this.drawSketchyBox(this.ctx, rankX, subBtnY, subBtnW, subBtnH);
 
     this.ctx.fillStyle = INK_COLOR;
-    this.ctx.font = `bold ${Math.floor(this.width * 0.035)}px ${comicFont}`;
-    const textY = subBtnY + (btnHeight * 0.75) / 2;
+    this.ctx.font = `bold ${Math.max(14, Math.floor(this.width * 0.038))}px ${safeFont}`;
+    const textY = subBtnY + subBtnH / 2;
     
     this.ctx.fillText('首页', homeX + subBtnW / 2, textY);
     this.ctx.fillText('商城', storeX + subBtnW / 2, textY);
-    this.ctx.fillText('排行榜', rankX + subBtnW / 2, textY);
+    this.ctx.fillText('排行', rankX + subBtnW / 2, textY);
 
-    this.hitboxes.home = { x: homeX, y: subBtnY, w: subBtnW, h: btnHeight * 0.75 };
-    this.hitboxes.store = { x: storeX, y: subBtnY, w: subBtnW, h: btnHeight * 0.75 };
-    this.hitboxes.rank = { x: rankX, y: subBtnY, w: subBtnW, h: btnHeight * 0.75 };
+    this.hitboxes.home = { x: homeX, y: subBtnY, w: subBtnW, h: subBtnH };
+    this.hitboxes.store = { x: storeX, y: subBtnY, w: subBtnW, h: subBtnH };
+    this.hitboxes.rank = { x: rankX, y: subBtnY, w: subBtnW, h: subBtnH };
 
     this.texture.needsUpdate = true
   }
@@ -168,7 +198,7 @@ export default class GameOverPage {
         clientY = e.clientY
       }
 
-      const padding = 15 
+      const padding = 20 
       const checkHit = (box) => clientX >= box.x - padding && clientX <= box.x + box.w + padding && clientY >= box.y - padding && clientY <= box.y + box.h + padding;
 
       if (checkHit(this.hitboxes.share)) {
@@ -188,7 +218,7 @@ export default class GameOverPage {
         return
       }
       if (checkHit(this.hitboxes.rank)) {
-        if (typeof wx !== 'undefined' && wx.showToast) wx.showToast({ title: '排行榜开发中', icon: 'none' })
+        if (typeof wx !== 'undefined' && wx.showToast) wx.showToast({ title: '还在画...', icon: 'none' })
         return
       }
     }
@@ -202,13 +232,13 @@ export default class GameOverPage {
   }
 
   show() {
-    this.isVisible = true
-    this.draw() 
-    this.instance.visible = true
+    this.isVisible = true;
+    this.draw();
+    this.instance.visible = true;
   }
 
   hide() {
-    this.isVisible = false
-    this.instance.visible = false
+    this.isVisible = false;
+    this.instance.visible = false;
   }
 }

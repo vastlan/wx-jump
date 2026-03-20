@@ -3,6 +3,8 @@ import GamePage from '../pages/game-page.js'
 import GameOverPage from '../pages/game-over-page.js'
 import StartPage from '../pages/start-page.js'
 import StorePage from '../pages/store-page.js' 
+import RankPage from '../pages/rank-page.js' 
+import scoreText from '../objects/score-text.js' // ✨ 引入计分板组件
 
 class GameView {
   constructor() {
@@ -10,13 +12,12 @@ class GameView {
     this.gameOverPage = null
     this.startPage = null
     this.storePage = null 
+    this.rankPage = null
   }
 
   initStartPage(callbacks) {
     this.startPage = new StartPage(callbacks)
-    this.startPage.init({
-      scene: this.gamePage ? this.gamePage.scene : null 
-    })
+    this.startPage.init({ scene: this.gamePage ? this.gamePage.scene : null })
   }
 
   initGamePage(callbacks) {
@@ -26,9 +27,7 @@ class GameView {
 
   initGameOverPage(callbacks) {
     this.gameOverPage = new GameOverPage(callbacks)
-    this.gameOverPage.init({
-      scene: this.gamePage ? this.gamePage.scene : null
-    })
+    this.gameOverPage.init({ scene: this.gamePage ? this.gamePage.scene : null })
   }
 
   initStorePage(callbacks) {
@@ -36,33 +35,47 @@ class GameView {
     this.storePage.init()
   }
 
-  showStartPage() {
+  initRankPage(callbacks) {
+    this.rankPage = new RankPage(callbacks)
+    this.rankPage.init()
+  }
+
+  // ✨ 核心修复：一键隐藏所有视图层，包括悬浮的分数
+  hideAll() {
     if (this.gameOverPage) this.gameOverPage.hide()
     if (this.gamePage) this.gamePage.hide()
     if (this.storePage) this.storePage.hide() 
+    if (this.startPage) this.startPage.hide()
+    if (this.rankPage) this.rankPage.hide()
+    if (scoreText) scoreText.hide() // 隐藏局内分数
+  }
+
+  showStartPage() {
+    this.hideAll();
     this.startPage.show()
   }
 
   showGamePage() {
-    if (this.gameOverPage) this.gameOverPage.hide()
-    if (this.startPage) this.startPage.hide()
-    if (this.storePage) this.storePage.hide() 
+    this.hideAll();
     this.gamePage.restart()
     this.gamePage.show()
+    // ✨ 只有在进入游戏主环节时，才让分数现身
+    if (scoreText) scoreText.show() 
   }
 
   showGameOverPage() {
-    if (this.gamePage) this.gamePage.hide()
-    if (this.startPage) this.startPage.hide()
-    if (this.storePage) this.storePage.hide() // ✨ 核心修复：结算页出现时强制卸载商城
+    this.hideAll();
     this.gameOverPage.show()
   }
 
   showStorePage() {
-    if (this.startPage) this.startPage.hide()
-    if (this.gameOverPage) this.gameOverPage.hide()
-    if (this.gamePage) this.gamePage.hide()
+    this.hideAll();
     this.storePage.show() 
+  }
+
+  showRankPage() {
+    this.hideAll();
+    this.rankPage.show() 
   }
 
   restartGame () {

@@ -39,6 +39,9 @@ export default class GamePage {
     this.standingBlock = null
     this.isFeverMode = false
     this.feverJumpsLeft = 0
+
+    // ✨ 性能优化：缓存 render 绑定，避免每帧产生新的函数对象导致 CPU GC 卡顿
+    this.renderBound = this.render.bind(this)
   }
 
   init() {
@@ -55,12 +58,38 @@ export default class GamePage {
 
     this.resetGame()
     this.bindTouchEvent()
-    this.render()
+    
+    // 启动渲染循环
+    requestAnimationFrame(this.renderBound)
+  }
+
+  // ✨ 核心修复：深度垃圾回收算法
+  deepDispose(obj) {
+      if (!obj) return;
+      if (obj.geometry) {
+          obj.geometry.dispose();
+      }
+      if (obj.material) {
+          if (Array.isArray(obj.material)) {
+              obj.material.forEach(m => m.dispose());
+          } else {
+              obj.material.dispose();
+          }
+      }
   }
 
   resetGame() {
     this.isGameOver = false
     this.clearBonusTimer() 
+    
+    // ✨ 修复：如果玩家在按压蓄力时死亡或重置，必须清除音效定时器
+    if (this.chargeAudioTimer) {
+        clearInterval(this.chargeAudioTimer)
+        this.chargeAudioTimer = null
+        audioManager.stop('scale_intro') 
+        audioManager.stop('scale_loop') 
+    }
+
     gameModel.resetScore() 
     this.stepCount = 0 
     this.isSliding = false
@@ -69,8 +98,25 @@ export default class GamePage {
     this.isFeverMode = false
     this.feverJumpsLeft = 0
 
+    // ✨ 核心修复：再来一局时，彻底榨干废弃方块的每一滴 GPU 显存
     this.blocks.forEach(block => {
       this.scene.instance.remove(block.instance)
+      
+      // 1. 释放光球模型显存
+      if (block.feverOrb) {
+          this.deepDispose(block.feverOrb);
+      }
+      // 2. 释放幻影材质显存
+      if (block.mirageMaterials) {
+          block.mirageMaterials.forEach(m => m.dispose());
+      }
+      // 3. 递归遍历释放冰块、美拉德等所有替换过的材质
+      if (block.instance) {
+          block.instance.traverse(c => {
+              if (c.isMesh) this.deepDispose(c);
+          });
+      }
+      // 4. 调用原有的基础清理
       if (block.dispose) block.dispose()
     })
     this.blocks = []
@@ -338,7 +384,6 @@ export default class GamePage {
         }
     }
 
-    // 取消幻影实体化
     if (nextBlock.isMirage) {
         nextBlock.isMirage = false; 
         if (nextBlock.mirageMaterials) {
@@ -346,19 +391,17 @@ export default class GamePage {
                 nextBlock.mirageMaterials[i].opacity = 1;
                 nextBlock.mirageMaterials[i].transparent = false;
             }
-            nextBlock.mirageMaterials = null; // 解除引用，释放内存
+            nextBlock.mirageMaterials = null; 
         }
     }
 
-    // ✨【安全清理】：吃星星或错失星星的内存防漏释放
     if (nextBlock.hasFeverItem) {
         nextBlock.hasFeverItem = false; 
         
         if (isPerfect && !this.isFeverMode) {
             if (nextBlock.feverOrb) {
                 nextBlock.instance.remove(nextBlock.feverOrb); 
-                nextBlock.feverOrb.geometry.dispose(); // 销毁废弃数据
-                nextBlock.feverOrb.material.dispose(); // 销毁废弃数据
+                this.deepDispose(nextBlock.feverOrb); // 安全清理光球
                 nextBlock.feverOrb = null;
             }
             
@@ -376,8 +419,7 @@ export default class GamePage {
                 setTimeout(() => {
                     if (nextBlock && nextBlock.instance && nextBlock.feverOrb) {
                         nextBlock.instance.remove(nextBlock.feverOrb);
-                        nextBlock.feverOrb.geometry.dispose(); // 延时彻底销毁
-                        nextBlock.feverOrb.material.dispose(); // 延时彻底销毁
+                        this.deepDispose(nextBlock.feverOrb); // 安全延时清理
                         nextBlock.feverOrb = null;
                     }
                 }, 200);
@@ -551,11 +593,9 @@ export default class GamePage {
     let isMirage = false;
     let spawnFever = false;
 
-    // ✨ 暴走生成的方块保持原样，没有任何危险变异
     if (isFeverSpawn) {
-        // 不应用任何危险属性
+        // 暴走状态安全生成
     } else if (gameModel.combo >= 3 && !this.isFeverMode) {
-        // ✨【严格内存回收】：替换材质前务必 dispose()
         isMoving = true;
         newBlock.isMoving = true;
         newBlock.moveAxis = isXDirection ? 'z' : 'x';
@@ -566,7 +606,7 @@ export default class GamePage {
         const buffMat = new THREE.MeshStandardMaterial({ color: 0xF3E5AB, roughness: 0.85, metalness: 0 }); 
         newBlock.instance.traverse(c => { 
             if (c.isMesh) {
-                if (c.material) c.material.dispose(); // 防止美拉德原材质泄露
+                if (c.material) c.material.dispose(); 
                 c.material = buffMat; 
             }
         });
@@ -612,9 +652,8 @@ export default class GamePage {
 
         if (isIce) {
             newBlock.isIce = true;
-            const iceColor = 0x88ddff; 
             const iceMat = new THREE.MeshPhysicalMaterial({
-                color: iceColor,       
+                color: 0x88ddff,       
                 transmission: 0.6,     
                 transparent: true,
                 opacity: 1,
@@ -626,13 +665,12 @@ export default class GamePage {
             });
             newBlock.instance.traverse((child) => {
                 if (child.isMesh) {
-                    if (child.material) child.material.dispose(); // 防止原材质泄漏
+                    if (child.material) child.material.dispose(); 
                     child.material = iceMat;
                 }
             });
         }
         
-        // ✨【消除 CPU 狂暴发热】：预存数组，告别每帧 traverse
         if (isMirage) {
             newBlock.isMirage = true;
             newBlock.mirageOffset = Math.random() * Math.PI * 2; 
@@ -641,7 +679,7 @@ export default class GamePage {
                 if (c.isMesh && c.material) {
                     const newMat = c.material.clone();
                     newMat.transparent = true;
-                    c.material.dispose(); // 废弃旧材质
+                    c.material.dispose(); 
                     c.material = newMat;
                     newBlock.mirageMaterials.push(newMat);
                 }
@@ -671,7 +709,6 @@ export default class GamePage {
     const camZ = cam.position.z
   
     this.blocks = this.blocks.filter((block, index) => {
-      // 绝对免疫回收锁，保障神罗天征生成的 5 个方块绝对存活
       if (index >= this.blocks.length - 10) return true;
 
       const pos = block.instance.position
@@ -682,10 +719,18 @@ export default class GamePage {
       if (!inView) {
         this.scene.instance.remove(block.instance)
         
-        // ✨【双重内存保险】：如果方块移除了但还有残留数组，彻底清空
+        // ✨ 核心修复：滚出屏幕的方块，不仅要移出场景，还要把显存炸得干干净净
+        if (block.feverOrb) {
+            this.deepDispose(block.feverOrb);
+        }
         if (block.mirageMaterials) {
             block.mirageMaterials.forEach(m => m.dispose());
             block.mirageMaterials = null;
+        }
+        if (block.instance) {
+            block.instance.traverse(c => {
+                if (c.isMesh) this.deepDispose(c);
+            });
         }
 
         if (block.dispose) block.dispose()
@@ -802,7 +847,6 @@ export default class GamePage {
           if (moveAxis === 'z') newVirtualZ = block.virtualPos;
       }
 
-      // ✨【丝滑渲染】：彻底告别每帧 Traverse，直调材质缓存数组
       if (block.isMirage && !block.hasCollapsed && block.mirageMaterials) {
           const opacity = Math.pow(Math.sin((now / 1000) * (Math.PI / 10) + block.mirageOffset), 2);
           for (let i = 0; i < block.mirageMaterials.length; i++) {
@@ -832,7 +876,9 @@ export default class GamePage {
 
     this.scene.render()
     if (this.bottle) this.bottle.update()
-    requestAnimationFrame(this.render.bind(this))
+    
+    // ✨ 性能优化：使用缓存的 bound 函数，防止每帧都产生新的 function 导致垃圾回收卡顿
+    requestAnimationFrame(this.renderBound)
 
     scoreText.updateCameraCompensation()
   }

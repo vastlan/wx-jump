@@ -12,14 +12,19 @@ export default class StorePage {
     constructor(callbacks) {
         this.callbacks = callbacks;
         this.items = []; this.inventory = []; this.links = []; this.prizes = [];
-        this.currentTab = 'store'; // 默认打开商城
+        this.currentTab = 'store'; 
         this.isLoading = true; this.isVisible = false; this.hasBoundTouch = false;
         this.sysInfo = typeof wx !== 'undefined' ? wx.getSystemInfoSync() : { windowWidth: window.innerWidth, windowHeight: window.innerHeight }
         this.width = this.sysInfo.windowWidth; this.height = this.sysInfo.windowHeight;
-        this.ui = { modalBox: {x:0,y:0,w:0,h:0}, closeBtn: {x:0,y:0,w:0,h:0} };
+        this.ui = { modalBox: {x:0,y:0,w:0,h:0}, closeBtn: {x:0,y:0,w:0,h:0}, listRect: {x:0,y:0,w:0,h:0} };
         
         this.tabHitboxes = []; this.buyBtnHitboxes = []; this.descBtnHitboxes = []; this.jokeBtnHitboxes = [];
         this.activeDescItem = null; 
+        
+        // ✨ 新增滚动状态
+        this.scrollY = 0;
+        this.maxScrollY = 0;
+        this.isSwiping = false;
     }
 
     init() {
@@ -39,6 +44,7 @@ export default class StorePage {
 
     async show() {
         this.isVisible = true; this.instance.visible = true; this.isLoading = true; this.activeDescItem = null; 
+        this.scrollY = 0; 
         this.draw(); 
         try {
             const [items, inventory, links, prizes] = await Promise.all([
@@ -63,9 +69,8 @@ export default class StorePage {
         let lines = []; let currentLine = '';
         for (let i = 0; i < text.length; i++) {
             let testLine = currentLine + text[i];
-            if (ctx.measureText(testLine).width > maxWidth && i > 0) {
-                lines.push(currentLine); currentLine = text[i];
-            } else currentLine = testLine;
+            if (ctx.measureText(testLine).width > maxWidth && i > 0) { lines.push(currentLine); currentLine = text[i]; } 
+            else currentLine = testLine;
         }
         lines.push(currentLine); return lines;
     }
@@ -92,7 +97,6 @@ export default class StorePage {
         this.ctx.font = `normal 22px ${safeFont}`; this.ctx.fillText('X', this.ui.closeBtn.x + closeAreaSize / 2, modalY + 30);
         this.drawSketchyLine(this.ctx, modalX + 10, modalY + 55, modalW - 20);
 
-        // Tabs
         this.tabHitboxes = [];
         const tabGap = 8; const tabW = (modalW - 30 - tabGap * 2) / 3; const tabH = 34; const tabY = modalY + 65;
         const tabs = [ { id: 'store', text: '积分商城' }, { id: 'prizes', text: '今日奖品' }, { id: 'links', text: '神秘链接' } ];
@@ -111,175 +115,189 @@ export default class StorePage {
             this.texture.needsUpdate = true; return;
         }
 
+        // ✨ 开启滚动裁剪区
         const contentStartY = tabY + tabH + 20;
+        const listVisibleH = modalY + modalH - contentStartY - 10;
+        this.ui.listRect = { x: modalX, y: contentStartY - 10, w: modalW, h: listVisibleH + 10 };
 
-        if (this.currentTab === 'links') this.drawLinksTab(modalX, modalW, contentStartY);
-        else if (this.currentTab === 'prizes') this.drawProductGrid(modalX, modalW, contentStartY, this.prizes, true);
-        else if (this.currentTab === 'store') this.drawProductGrid(modalX, modalW, contentStartY, this.items, false);
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.rect(this.ui.listRect.x, this.ui.listRect.y, this.ui.listRect.w, this.ui.listRect.h);
+        this.ctx.clip();
 
-        // 详情弹窗
+        let totalContentH = 0;
+        const scrolledY = contentStartY + this.scrollY;
+
+        if (this.currentTab === 'links') totalContentH = this.drawLinksTab(modalX, modalW, scrolledY);
+        else if (this.currentTab === 'prizes') totalContentH = this.drawProductGrid(modalX, modalW, scrolledY, this.prizes, true);
+        else if (this.currentTab === 'store') totalContentH = this.drawProductGrid(modalX, modalW, scrolledY, this.items, false);
+
+        this.ctx.restore();
+
+        // ✨ 计算极限与绘制滚动条
+        this.maxScrollY = Math.max(0, totalContentH - listVisibleH);
+        if (this.maxScrollY > 0 && !this.activeDescItem) {
+            const barX = modalX + modalW - 8;
+            this.ctx.beginPath(); this.ctx.lineWidth = 1; this.ctx.strokeStyle = '#DDDDDD';
+            this.ctx.moveTo(barX, contentStartY); this.ctx.lineTo(barX, contentStartY + listVisibleH); this.ctx.stroke();
+            const thumbH = Math.max(30, listVisibleH * (listVisibleH / totalContentH));
+            const thumbY = contentStartY + (-this.scrollY / this.maxScrollY) * (listVisibleH - thumbH);
+            this.ctx.beginPath(); this.ctx.lineWidth = 4; this.ctx.lineCap = 'round'; this.ctx.strokeStyle = INK_COLOR;
+            this.ctx.moveTo(barX, thumbY); this.ctx.lineTo(barX, thumbY + thumbH); this.ctx.stroke();
+        }
+
         if (this.activeDescItem) {
             this.ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'; this.ctx.fillRect(modalX, modalY, modalW, modalH);
             const noteW = modalW * 0.85; const noteH = modalH * 0.45;
             const noteX = modalX + (modalW - noteW) / 2; const noteY = modalY + (modalH - noteH) / 2;
-
             this.ctx.fillStyle = PAPER_COLOR; this.ctx.fillRect(noteX, noteY, noteW, noteH);
             this.drawSketchyBox(this.ctx, noteX, noteY, noteW, noteH);
-
             this.ctx.fillStyle = INK_COLOR; this.ctx.font = `900 18px ${safeFont}`;
             this.ctx.textAlign = 'center'; this.ctx.fillText(this.activeDescItem.name, w / 2, noteY + 30);
             this.drawSketchyLine(this.ctx, noteX + 20, noteY + 45, noteW - 40);
-
             this.ctx.font = `normal 15px ${safeFont}`; this.ctx.textAlign = 'left';
             const lines = this.wrapText(this.ctx, this.activeDescItem.desc, noteW - 30);
             lines.forEach((line, idx) => { this.ctx.fillText(line, noteX + 15, noteY + 75 + idx * 22); });
-
             this.ctx.fillStyle = '#888888'; this.ctx.font = `italic 12px ${safeFont}`;
             this.ctx.textAlign = 'center'; this.ctx.fillText('(点外边关掉)', w / 2, noteY + noteH - 20);
         }
-
         this.texture.needsUpdate = true;
     }
 
-    // ✨ 绘制[神秘链接] - 方块排列预留Logo
     drawLinksTab(modalX, modalW, startY) {
         this.jokeBtnHitboxes = [];
         const gap = 15; const padding = 20;
-        const boxW = (modalW - padding * 2 - gap * 2) / 3;
-        const boxH = boxW * 1.1;
+        const boxW = (modalW - padding * 2 - gap * 2) / 3; const boxH = boxW * 1.1;
+        let rows = 0;
 
         this.links.forEach((link, i) => {
-            const row = Math.floor(i / 3); const col = i % 3;
+            rows = Math.max(rows, Math.floor(i / 3) + 1);
+            const col = i % 3;
             const x = modalX + padding + col * (boxW + gap);
-            const y = startY + row * (boxH + gap);
+            const y = startY + Math.floor(i / 3) * (boxH + gap);
 
             this.drawSketchyBox(this.ctx, x, y, boxW, boxH);
-            
-            // Logo 占位区
-            this.ctx.fillStyle = '#EAEAEA';
-            this.ctx.fillRect(x + 5, y + 5, boxW - 10, boxH * 0.55);
-            this.ctx.fillStyle = '#888888';
-            this.ctx.font = `12px ${safeFont}`;
-            this.ctx.textAlign = 'center';
+            this.ctx.fillStyle = '#EAEAEA'; this.ctx.fillRect(x + 5, y + 5, boxW - 10, boxH * 0.55);
+            this.ctx.fillStyle = '#888888'; this.ctx.font = `12px ${safeFont}`; this.ctx.textAlign = 'center';
             this.ctx.fillText(link.logo ? '图' : 'Logo', x + boxW/2, y + 5 + (boxH*0.55)/2);
-
-            // 名称
-            this.ctx.fillStyle = INK_COLOR;
-            this.ctx.font = `bold 13px ${safeFont}`;
+            this.ctx.fillStyle = INK_COLOR; this.ctx.font = `bold 13px ${safeFont}`;
             this.ctx.fillText(link.name, x + boxW/2, y + boxH - 15);
-
             this.jokeBtnHitboxes.push({ msg: `前往 ${link.name} (API预留)`, x, y, w: boxW, h: boxH });
         });
+        return rows * (boxH + gap);
     }
 
-    // ✨ 核心视觉：绘制商品/奖品的 [双列网格瀑布流]
     drawProductGrid(modalX, modalW, startY, dataList, isPrize) {
         this.buyBtnHitboxes = []; this.descBtnHitboxes = [];
+        let offset = 0;
         
         if(!isPrize) {
             this.ctx.fillStyle = INK_COLOR; this.ctx.font = `bold 14px ${safeFont}`;
             this.ctx.textAlign = 'left'; this.ctx.fillText(`兜里还剩: ${gameModel.coins} 分`, modalX + 20, startY - 10);
-            startY += 15;
+            offset = 25;
         }
 
         const cols = 2; const gap = 15; const padding = 20;
-        const itemW = (modalW - padding * 2 - gap) / 2;
-        const itemH = itemW * 1.45; // 黄金比例卡片
+        const itemW = (modalW - padding * 2 - gap) / 2; const itemH = itemW * 1.45; 
+        let rows = 0;
 
         dataList.forEach((item, i) => {
-            const row = Math.floor(i / 2); const col = i % 2;
+            rows = Math.max(rows, Math.floor(i / 2) + 1);
+            const col = i % 2;
             const x = modalX + padding + col * (itemW + gap);
-            const y = startY + row * (itemH + gap);
+            const y = startY + offset + Math.floor(i / 2) * (itemH + gap);
 
-            // 外层卡片框
             this.drawSketchyBox(this.ctx, x, y, itemW, itemH);
-
-            // 1. 上图：图片占位区
             const imgH = itemW * 0.65;
-            this.ctx.fillStyle = '#F5F5F5';
-            this.ctx.fillRect(x + 6, y + 6, itemW - 12, imgH);
+            this.ctx.fillStyle = '#F5F5F5'; this.ctx.fillRect(x + 6, y + 6, itemW - 12, imgH);
             this.drawSketchyBox(this.ctx, x + 5, y + 5, itemW - 10, imgH);
             
-            this.ctx.fillStyle = '#AAAAAA';
-            this.ctx.font = `12px ${safeFont}`;
-            this.ctx.textAlign = 'center';
+            this.ctx.fillStyle = '#AAAAAA'; this.ctx.font = `12px ${safeFont}`; this.ctx.textAlign = 'center';
             this.ctx.fillText(item.image ? '图' : '暂无图', x + itemW/2, y + 5 + imgH/2);
 
-            // 2. 右上角：问号 (?)
-            const iconR = 8;
-            const iconX = x + itemW - 5 - iconR;
-            const iconY = y + 5 + iconR;
-            this.ctx.fillStyle = PAPER_COLOR;
-            this.ctx.beginPath(); this.ctx.arc(iconX, iconY, iconR, 0, Math.PI*2); this.ctx.fill(); // 白底盖住框线
+            const iconR = 8; const iconX = x + itemW - 5 - iconR; const iconY = y + 5 + iconR;
+            this.ctx.fillStyle = PAPER_COLOR; this.ctx.beginPath(); this.ctx.arc(iconX, iconY, iconR, 0, Math.PI*2); this.ctx.fill();
             this.ctx.beginPath(); this.ctx.arc(iconX, iconY, iconR, 0, Math.PI*1.8); this.ctx.stroke();
-            this.ctx.fillStyle = INK_COLOR;
-            this.ctx.font = `bold 12px ${safeFont}`;
-            this.ctx.fillText('?', iconX, iconY + 1);
+            this.ctx.fillStyle = INK_COLOR; this.ctx.font = `bold 12px ${safeFont}`; this.ctx.fillText('?', iconX, iconY + 1);
             this.descBtnHitboxes.push({ item, x: iconX - 15, y: iconY - 15, w: 30, h: 30 });
 
-            // 3. 下名称：智能截断
-            this.ctx.fillStyle = INK_COLOR;
-            this.ctx.font = `900 14px ${safeFont}`;
-            let displayName = item.name;
-            if (this.ctx.measureText(displayName).width > itemW - 10) {
-                displayName = displayName.substring(0, 5) + '..'; // 极简截断
-            }
-            this.ctx.fillText(displayName, x + itemW/2, y + imgH + 22);
+            this.ctx.fillStyle = INK_COLOR; this.ctx.font = `900 14px ${safeFont}`;
+            let dName = item.name; if (this.ctx.measureText(dName).width > itemW - 10) dName = dName.substring(0, 5) + '..'; 
+            this.ctx.fillText(dName, x + itemW/2, y + imgH + 22);
 
-            // 4. 底部：积分按钮
-            const btnW = itemW - 16;
-            const btnH = 26;
-            const btnX = x + 8;
-            const btnY = y + itemH - btnH - 8;
-
-            const isOwned = this.inventory.includes(item.id);
-            if (isOwned && !isPrize) {
-                this.ctx.fillStyle = '#888888';
-                this.ctx.font = `bold 14px ${safeFont}`;
+            const btnW = itemW - 16; const btnH = 26; const btnX = x + 8; const btnY = y + itemH - btnH - 8;
+            if (this.inventory.includes(item.id) && !isPrize) {
+                this.ctx.fillStyle = '#888888'; this.ctx.font = `bold 14px ${safeFont}`;
                 this.ctx.fillText('已拥有', btnX + btnW/2, btnY + btnH/2);
                 this.drawSketchyLine(this.ctx, btnX, btnY + btnH/2, btnW);
             } else {
                 this.drawSketchyBox(this.ctx, btnX, btnY, btnW, btnH);
-                this.ctx.fillStyle = INK_COLOR;
-                this.ctx.font = `bold 13px ${safeFont}`;
+                this.ctx.fillStyle = INK_COLOR; this.ctx.font = `bold 13px ${safeFont}`;
                 this.ctx.fillText(isPrize ? `抽: ${item.price}` : `${item.price} 分`, btnX + btnW/2, btnY + btnH/2);
                 this.buyBtnHitboxes.push({ item, x: btnX, y: btnY, w: btnW, h: btnH });
             }
             this.ctx.textAlign = 'left';
         });
+        return offset + rows * (itemH + gap);
     }
 
     bindTouchEvent() {
         if (this.hasBoundTouch) return
         this.hasBoundTouch = true
 
-        const handleTouch = async (e) => {
-            if (!this.isVisible || this.isLoading) return
+        let touchStartY = 0; let startScrollY = 0;
 
-            let clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
-            let clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+        const handleStart = (e) => {
+            if (!this.isVisible || this.isLoading) return;
+            touchStartY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+            startScrollY = this.scrollY; this.isSwiping = false;
+        };
+
+        const handleMove = (e) => {
+            if (!this.isVisible || this.isLoading || this.activeDescItem || this.maxScrollY <= 0) return;
+            let currentY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+            let dy = currentY - touchStartY;
+            if (Math.abs(dy) > 5) this.isSwiping = true;
+            if (this.isSwiping) {
+                this.scrollY = startScrollY + dy;
+                if (this.scrollY > 0) this.scrollY = 0;
+                if (this.scrollY < -this.maxScrollY) this.scrollY = -this.maxScrollY;
+                this.draw();
+            }
+        };
+
+        const handleEnd = (e) => {
+            if (!this.isVisible) return;
+            if (this.isSwiping) return; // 重点：滑动动作绝对不触发点击购买
+
+            let cX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+            let cY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
 
             if (this.activeDescItem) { this.activeDescItem = null; this.draw(); return; }
 
-            const { modalBox, closeBtn } = this.ui;
-            const isOutside = (clientX < modalBox.x || clientX > modalBox.x + modalBox.w || clientY < modalBox.y || clientY > modalBox.y + modalBox.h);
-            const isClickingClose = (clientX >= closeBtn.x - 15 && clientX <= closeBtn.x + closeBtn.w + 15 && clientY >= closeBtn.y - 15 && clientY <= closeBtn.y + closeBtn.h + 15);
+            const { modalBox, closeBtn, listRect } = this.ui;
+            const isOutside = (cX < modalBox.x || cX > modalBox.x + modalBox.w || cY < modalBox.y || cY > modalBox.y + modalBox.h);
+            const isClickingClose = (cX >= closeBtn.x-15 && cX <= closeBtn.x+closeBtn.w+15 && cY >= closeBtn.y-15 && cY <= closeBtn.y+closeBtn.h+15);
 
-            if (isOutside || isClickingClose) { if (this.callbacks && this.callbacks.onBack) this.callbacks.onBack(); return; }
+            if (isOutside || isClickingClose) { if (this.callbacks?.onBack) this.callbacks.onBack(); return; }
 
-            const pad = 15;
-            const hit = (b) => clientX >= b.x-pad && clientX <= b.x+b.w+pad && clientY >= b.y-pad && clientY <= b.y+b.h+pad;
+            const hit = (b, pad=15) => cX >= b.x-pad && cX <= b.x+b.w+pad && cY >= b.y-pad && cY <= b.y+b.h+pad;
 
             for (let i = 0; i < this.tabHitboxes.length; i++) {
                 if (hit(this.tabHitboxes[i])) {
-                    if (this.currentTab !== this.tabHitboxes[i].id) { this.currentTab = this.tabHitboxes[i].id; this.draw(); }
-                    return;
+                    if (this.currentTab !== this.tabHitboxes[i].id) { 
+                        this.currentTab = this.tabHitboxes[i].id; 
+                        this.scrollY = 0; // ✨ 切换Tab强制重置滚动
+                        this.draw(); 
+                    } return;
                 }
             }
+            
+            // ✨ 如果点击的位置在裁剪区（列表区）外，直接忽略商品和链接的点击判定
+            if (cY < listRect.y || cY > listRect.y + listRect.h) return;
+
             for (let i = 0; i < this.jokeBtnHitboxes.length; i++) {
-                if (hit(this.jokeBtnHitboxes[i])) {
-                    if (typeof wx !== 'undefined') wx.showToast({ title: this.jokeBtnHitboxes[i].msg, icon: 'none' }); return;
-                }
+                if (hit(this.jokeBtnHitboxes[i])) { if (typeof wx !== 'undefined') wx.showToast({ title: this.jokeBtnHitboxes[i].msg, icon: 'none' }); return; }
             }
             for (let i = 0; i < this.descBtnHitboxes.length; i++) {
                 if (hit(this.descBtnHitboxes[i])) { this.activeDescItem = this.descBtnHitboxes[i].item; this.draw(); return; }
@@ -287,9 +305,13 @@ export default class StorePage {
             for (let i = 0; i < this.buyBtnHitboxes.length; i++) {
                 if (hit(this.buyBtnHitboxes[i])) { this.buyItem(this.buyBtnHitboxes[i].item); break; }
             }
+        };
+
+        if (typeof wx !== 'undefined') { wx.onTouchStart(handleStart); wx.onTouchMove(handleMove); wx.onTouchEnd(handleEnd); } 
+        else {
+            window.addEventListener('mousedown', handleStart); window.addEventListener('mousemove', (e)=>{if(e.buttons>0)handleMove(e)}); window.addEventListener('mouseup', handleEnd);
+            window.addEventListener('touchstart', handleStart); window.addEventListener('touchmove', handleMove); window.addEventListener('touchend', handleEnd);
         }
-        if (typeof wx !== 'undefined') wx.onTouchEnd(handleTouch)
-        else { window.addEventListener('touchend', handleTouch); window.addEventListener('mouseup', handleTouch) }
     }
 
     async buyItem(item) {

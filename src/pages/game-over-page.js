@@ -61,34 +61,38 @@ export default class GameOverPage {
 
     const cx = this.width / 2
 
-    // ✨ 右上角草稿风 🏠 (首页按钮)
-    const homeW = 32; const homeH = 32;
+    // ==========================================
+    // ✨ 1. 右上角草稿风 🏠 (首页按钮)，变更变量名避免冲突
+    // ==========================================
+    const topHomeW = 32; const topHomeH = 32;
     const safeTop = (this.sysInfo.statusBarHeight || 20) + 10;
-    const homeX = homeW;
-    const homeY = safeTop;
+    const topHomeX = 20;
+    const topHomeY = safeTop;
 
     this.ctx.beginPath(); this.ctx.lineWidth = 2.5; this.ctx.strokeStyle = INK_COLOR;
     this.ctx.lineJoin = 'round'; this.ctx.lineCap = 'round';
-    this.ctx.moveTo(homeX + homeW/2, homeY + 2);
-    this.ctx.lineTo(homeX - 2, homeY + homeH/2);
-    this.ctx.lineTo(homeX + 5, homeY + homeH/2);
-    this.ctx.lineTo(homeX + 5, homeY + homeH);
-    this.ctx.lineTo(homeX + homeW - 5, homeY + homeH);
-    this.ctx.lineTo(homeX + homeW - 5, homeY + homeH/2);
-    this.ctx.lineTo(homeX + homeW + 2, homeY + homeH/2);
+    this.ctx.moveTo(topHomeX + topHomeW/2, topHomeY + 2);
+    this.ctx.lineTo(topHomeX - 2, topHomeY + topHomeH/2);
+    this.ctx.lineTo(topHomeX + 5, topHomeY + topHomeH/2);
+    this.ctx.lineTo(topHomeX + 5, topHomeY + topHomeH);
+    this.ctx.lineTo(topHomeX + topHomeW - 5, topHomeY + topHomeH);
+    this.ctx.lineTo(topHomeX + topHomeW - 5, topHomeY + topHomeH/2);
+    this.ctx.lineTo(topHomeX + topHomeW + 2, topHomeY + topHomeH/2);
     this.ctx.closePath();
     this.ctx.stroke();
     // 画个小门
     this.ctx.beginPath();
-    this.ctx.moveTo(homeX + homeW/2 - 4, homeY + homeH);
-    this.ctx.lineTo(homeX + homeW/2 - 4, homeY + homeH - 12);
-    this.ctx.lineTo(homeX + homeW/2 + 4, homeY + homeH - 12);
-    this.ctx.lineTo(homeX + homeW/2 + 4, homeY + homeH);
+    this.ctx.moveTo(topHomeX + topHomeW/2 - 4, topHomeY + topHomeH);
+    this.ctx.lineTo(topHomeX + topHomeW/2 - 4, topHomeY + topHomeH - 12);
+    this.ctx.lineTo(topHomeX + topHomeW/2 + 4, topHomeY + topHomeH - 12);
+    this.ctx.lineTo(topHomeX + topHomeW/2 + 4, topHomeY + topHomeH);
     this.ctx.stroke();
 
-    this.hitboxes.home = { x: homeX - 10, y: homeY - 10, w: homeW + 20, h: homeH + 20 };
+    this.hitboxes.home = { x: topHomeX - 10, y: topHomeY - 10, w: topHomeW + 20, h: topHomeH + 20 };
 
-    // 分数展示
+    // ==========================================
+    // 2. 得分展示区
+    // ==========================================
     const titleY = this.height * 0.18;
     this.drawStickerText(this.ctx, '本次得分', cx, titleY, Math.floor(this.width * 0.05));
     this.ctx.beginPath(); this.ctx.lineWidth=4; this.ctx.strokeStyle=INK_COLOR; this.ctx.moveTo(cx-50,titleY+5); this.ctx.lineTo(cx+60,titleY-5); this.ctx.stroke();
@@ -110,26 +114,30 @@ export default class GameOverPage {
     this.ctx.fillStyle = INK_COLOR; this.ctx.fillText('分享好友复活', cx, shareY + btnHeight / 2);
     this.hitboxes.share = { x: baseX, y: shareY, w: baseWidth, h: btnHeight };
 
-    // ✨ 底部功能矩阵：左=商城(打开看看)，右=排行榜
+    // ==========================================
+    // ✨ 3. 底部功能矩阵：左=商城(打开看看)，右=排行榜 (双列对称排版)
+    // ==========================================
     const subBtnY = shareY + btnHeight + gap * 1.2;
     const btnGap = 20; 
     const subBtnW = this.width * 0.30; 
     const subBtnH = btnHeight * 0.8;
     
+    // 以中轴线 cx 对称推开，绝对不会重叠！
     const storeX = cx - subBtnW - btnGap / 2;
     const rankX = cx + btnGap / 2;
 
-    this.ctx.fillStyle = PAPER_COLOR;
-    this.ctx.fillRect(storeX, subBtnY, subBtnW, subBtnH);
-    this.ctx.fillRect(rankX, subBtnY, subBtnW, subBtnH);
-
+    // 左侧：破纸箱
+    this.ctx.fillStyle = PAPER_COLOR; this.ctx.fillRect(storeX, subBtnY, subBtnW, subBtnH);
     this.drawSketchyOpenBox(this.ctx, storeX, subBtnY, subBtnW, subBtnH); 
-    this.drawSketchyBox(this.ctx, rankX, subBtnY, subBtnW, subBtnH);
-
     this.ctx.fillStyle = INK_COLOR;
     this.ctx.font = `bold ${Math.max(12, Math.floor(this.width * 0.035))}px ${safeFont}`;
     this.ctx.fillText('打开看看?', storeX + subBtnW / 2, subBtnY + subBtnH / 2 + 2);
-    this.ctx.font = `bold ${Math.max(14, Math.floor(this.width * 0.038))}px ${safeFont}`;
+
+    // 右侧：排行榜
+    this.ctx.fillStyle = PAPER_COLOR; this.ctx.fillRect(rankX, subBtnY, subBtnW, subBtnH);
+    this.drawSketchyBox(this.ctx, rankX, subBtnY, subBtnW, subBtnH);
+    this.ctx.fillStyle = INK_COLOR;
+    this.ctx.font = `bold ${Math.max(14, Math.floor(this.width * 0.04))}px ${safeFont}`;
     this.ctx.fillText('排行榜', rankX + subBtnW / 2, subBtnY + subBtnH / 2);
 
     this.hitboxes.store = { x: storeX, y: subBtnY, w: subBtnW, h: subBtnH };

@@ -117,7 +117,6 @@ export default class StartPage {
     this.ctx.fillText('开始游戏', cx, playY + playH / 2);
     this.hitboxes.play = { x: playX, y: playY, w: playW, h: playH };
 
-    // ✨ 左右位置互换：左=商城(打开看看)，右=排行榜
     const subBtnW = this.width * 0.28; 
     const subBtnH = this.height * 0.055;
     const subBtnY = playY + playH + this.height * 0.04;
@@ -126,14 +125,12 @@ export default class StartPage {
     const storeX = cx - subBtnW - btnGap / 2;
     const rankX = cx + btnGap / 2;
 
-    // 左侧：掀开的破纸箱 (打开看看?)
     this.ctx.fillStyle = PAPER_COLOR; this.ctx.fillRect(storeX, subBtnY, subBtnW, subBtnH);
     this.drawSketchyOpenBox(this.ctx, storeX, subBtnY, subBtnW, subBtnH);
     this.ctx.fillStyle = INK_COLOR;
     this.ctx.font = `bold ${Math.floor(this.width * 0.038)}px ${safeFont}`; 
     this.ctx.fillText('打开看看?', storeX + subBtnW / 2, subBtnY + subBtnH / 2 + 2); 
 
-    // 右侧：正常的线框 (排行榜)
     this.ctx.fillStyle = PAPER_COLOR; this.ctx.fillRect(rankX, subBtnY, subBtnW, subBtnH);
     this.drawSketchyBox(this.ctx, rankX, subBtnY, subBtnW, subBtnH);
     this.ctx.fillStyle = INK_COLOR;
@@ -160,6 +157,8 @@ export default class StartPage {
 
       if (hit(this.hitboxes.play)) { if (this.callbacks?.gameStart) this.callbacks.gameStart(); return; }
       if (hit(this.hitboxes.store)) { if (this.callbacks?.showStore) this.callbacks.showStore(); return; }
+      
+      // ✨ 修复：不再弹出 toast，直接触发回调打开排行榜
       if (hit(this.hitboxes.rank)) { if (this.callbacks?.showRank) this.callbacks.showRank(); return; }
     }
     if (typeof wx !== 'undefined') wx.onTouchEnd(handleTouch);

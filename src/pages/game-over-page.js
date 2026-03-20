@@ -4,7 +4,6 @@ import gameModel from '../game/model'
 import sceneConf from '../../confs/scene-conf' 
 import API from '../services/api'
 
-// ✨ 核心组件热插拔！目前使用免费5次版过审，后期要上广告直接改成 import reviveModule from '../components/revive-ad' 即可！
 import reviveModule from '../components/revive-free' 
 
 const safeFont = `"-apple-system", BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif`;
@@ -51,6 +50,8 @@ export default class GameOverPage {
     this.instance.renderOrder = 200; this.instance.visible = false;
     
     camera.instance.add(this.instance)
+
+    if (reviveModule.init) reviveModule.init();
     this.bindTouchEvent()
   }
 
@@ -89,7 +90,6 @@ export default class GameOverPage {
     if (!this.isVisible) return;
     this.animTime += 0.08;
 
-    // ✨ 将阻止滚动的标志位交给挂载的模块去决定
     if (this.marqueeX !== null && this.isTextLong && !reviveModule.isBlocking()) {
         if (this.scrollWait > 0) this.scrollWait -= 16; 
         else {
@@ -110,9 +110,12 @@ export default class GameOverPage {
 
     const cx = this.width / 2
 
+    // ==========================================
+    // ✨ 1. 绝对左侧定位草稿风 🏠 (首页按钮)
+    // ==========================================
     const topHomeW = 32; const topHomeH = 32;
     const safeTop = (this.sysInfo.statusBarHeight || 20) + 10;
-    const topHomeX = 20; 
+    const topHomeX = 25; // 绝对锁定在屏幕左侧边缘！
     const topHomeY = safeTop;
 
     this.ctx.beginPath(); this.ctx.lineWidth = 2.5; this.ctx.strokeStyle = INK_COLOR;
@@ -134,18 +137,19 @@ export default class GameOverPage {
     this.ctx.stroke();
     this.hitboxes.home = { x: topHomeX - 10, y: topHomeY - 10, w: topHomeW + 20, h: topHomeH + 20 };
 
+    // 2. 标题区
     const titleY = this.height * 0.15;
     this.drawStickerText(this.ctx, '本次得分', cx, titleY, Math.floor(this.width * 0.05));
     this.ctx.beginPath(); this.ctx.lineWidth=4; this.ctx.strokeStyle=INK_COLOR; this.ctx.moveTo(cx-50,titleY+5); this.ctx.lineTo(cx+60,titleY-5); this.ctx.stroke();
     this.ctx.save(); this.ctx.translate(cx, titleY + this.height * 0.05); this.ctx.rotate(-0.1); this.drawStickerText(this.ctx, '寄 了', 0, 0, Math.floor(this.width * 0.12)); this.ctx.restore();
     this.drawStickerText(this.ctx, gameModel.score.toString(), cx, this.height * 0.30, Math.floor(this.width * 0.22));
 
+    // 3. 主操作区
     const baseWidth = this.width * 0.60; 
     const btnHeight = this.height * 0.065; 
     const gap = this.height * 0.020;      
     const baseX = cx - baseWidth / 2;
 
-    // A. 再玩一局
     const replayY = this.height * 0.43;
     this.ctx.fillStyle = PAPER_COLOR; this.ctx.fillRect(baseX, replayY, baseWidth, btnHeight);
     this.drawSketchyBox(this.ctx, baseX, replayY, baseWidth, btnHeight);
@@ -154,11 +158,9 @@ export default class GameOverPage {
     this.ctx.fillText('再玩一局', cx, replayY + btnHeight / 2);
     this.hitboxes.replay = { x: baseX, y: replayY, w: baseWidth, h: btnHeight };
 
-    // B. 复活按钮动态挂载 (免费/广告)
     const reviveY = replayY + btnHeight + gap;
     this.hitboxes.revive = reviveModule.draw(this.ctx, baseX, reviveY, baseWidth, btnHeight, this.drawSketchyBox.bind(this));
 
-    // C. 薅薅分享
     const shareY = reviveY + btnHeight + gap;
     const shareBtnHeight = btnHeight * 1.15; 
     
@@ -198,7 +200,7 @@ export default class GameOverPage {
 
     this.hitboxes.share = { x: baseX, y: shareY, w: baseWidth, h: shareBtnHeight };
 
-    // 4. 底部：商城 & 排行榜
+    // 4. 底部区
     const subBtnY = shareY + shareBtnHeight + gap * 1.2;
     const btnGap = 20; 
     const subBtnW = this.width * 0.30; 
@@ -222,8 +224,7 @@ export default class GameOverPage {
     this.hitboxes.store = { x: storeX, y: subBtnY, w: subBtnW, h: subBtnH };
     this.hitboxes.rank = { x: rankX, y: subBtnY, w: subBtnW, h: subBtnH };
 
-    // ✨ 将阻断式的倒计时遮罩交给模块去负责渲染
-    reviveModule.drawOverlay(this.ctx, this.width, this.height, cx, this.drawSketchyBox.bind(this));
+    if(reviveModule.drawOverlay) reviveModule.drawOverlay(this.ctx, this.width, this.height, cx, this.drawSketchyBox.bind(this));
 
     this.texture.needsUpdate = true
   }
@@ -242,8 +243,6 @@ export default class GameOverPage {
 
     const handleTouch = (e) => {
       if (!this.isVisible) return
-      
-      // ✨ 阻断式弹窗检测 (如果是广告模式播放中，直接拦截触控)
       if (reviveModule.isBlocking()) return;
 
       let cX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
@@ -256,16 +255,19 @@ export default class GameOverPage {
       if (hit(this.hitboxes.store)) { if (this.callbacks?.showStore) this.callbacks.showStore(); return; }
       if (hit(this.hitboxes.rank)) { if (this.callbacks?.showRank) this.callbacks.showRank(); return; }
 
-      // ✨ 将复活处理交由独立模块去接管
       if (hit(this.hitboxes.revive)) { 
           reviveModule.handleClick(this.callbacks, this); 
           return; 
       }
 
+      // ✨ 修复违规：彻底去除 imageUrl 控制，微信将默认无警报地拉起合规分享面板
       if (hit(this.hitboxes.share)) { 
           const shareText = this.getRandomShareText();
-          if (typeof wx !== 'undefined' && wx.shareAppMessage) wx.shareAppMessage({ title: shareText }); 
-          else console.log("【PC端触发分享】:", shareText);
+          if (typeof wx !== 'undefined' && wx.shareAppMessage) {
+              wx.shareAppMessage({ title: shareText }); 
+          } else {
+              console.log("【PC端触发分享】:", shareText);
+          }
           return; 
       }
     }
@@ -286,6 +288,6 @@ export default class GameOverPage {
       this.instance.visible = false; 
       const cancelAnim = typeof cancelAnimationFrame !== 'undefined' ? cancelAnimationFrame : clearTimeout;
       if (this.animFrame) cancelAnim(this.animFrame);
-      reviveModule.reset(); // 关闭时清空组件状态
+      if (reviveModule.reset) reviveModule.reset();
   }
 }

@@ -21,10 +21,11 @@ export default class StorePage {
         this.tabHitboxes = []; this.buyBtnHitboxes = []; this.descBtnHitboxes = []; this.jokeBtnHitboxes = [];
         this.activeDescItem = null; 
         
-        // ✨ 新增滚动状态
+        // 滚动状态
         this.scrollY = 0;
         this.maxScrollY = 0;
         this.isSwiping = false;
+        this.canScroll = false; // ✨ 新增：用于判断落点是否在可滚动区域
     }
 
     init() {
@@ -99,7 +100,9 @@ export default class StorePage {
 
         this.tabHitboxes = [];
         const tabGap = 8; const tabW = (modalW - 30 - tabGap * 2) / 3; const tabH = 34; const tabY = modalY + 65;
-        const tabs = [ { id: 'store', text: '积分商城' }, { id: 'prizes', text: '今日奖品' }, { id: 'links', text: '神秘链接' } ];
+        
+        // ✨ 已根据修正记录，将“积分商城”统一换成“商城”
+        const tabs = [ { id: 'store', text: '商城' }, { id: 'prizes', text: '今日奖品' }, { id: 'links', text: '神秘链接' } ];
 
         tabs.forEach((tab, index) => {
             const tx = modalX + 15 + index * (tabW + tabGap);
@@ -115,11 +118,26 @@ export default class StorePage {
             this.texture.needsUpdate = true; return;
         }
 
-        // ✨ 开启滚动裁剪区
-        const contentStartY = tabY + tabH + 20;
-        const listVisibleH = modalY + modalH - contentStartY - 10;
-        this.ui.listRect = { x: modalX, y: contentStartY - 10, w: modalW, h: listVisibleH + 10 };
+        // ==========================================
+        // ✨ 布局重构：分离【固定头部】与【滚动列表】
+        // ==========================================
+        let fixedHeaderH = 0;
+        
+        // 将“兜里还剩 xx 分” 固定在裁剪区外部的头部
+        if (this.currentTab === 'store') {
+            fixedHeaderH = 30;
+            this.ctx.fillStyle = INK_COLOR; 
+            this.ctx.font = `bold 14px ${safeFont}`;
+            this.ctx.textAlign = 'left'; 
+            this.ctx.fillText(`兜里还剩: ${gameModel.coins} 分`, modalX + 20, tabY + tabH + 20);
+        }
 
+        // 重新计算滚动区域的起始 Y 和可用高度
+        const contentStartY = tabY + tabH + 15 + fixedHeaderH;
+        const listVisibleH = modalY + modalH - contentStartY - 10;
+        this.ui.listRect = { x: modalX, y: contentStartY - 5, w: modalW, h: listVisibleH + 5 };
+
+        // ✨ 开启滚动裁剪区
         this.ctx.save();
         this.ctx.beginPath();
         this.ctx.rect(this.ui.listRect.x, this.ui.listRect.y, this.ui.listRect.w, this.ui.listRect.h);
@@ -134,7 +152,7 @@ export default class StorePage {
 
         this.ctx.restore();
 
-        // ✨ 计算极限与绘制滚动条
+        // ✨ 绘制滚动条
         this.maxScrollY = Math.max(0, totalContentH - listVisibleH);
         if (this.maxScrollY > 0 && !this.activeDescItem) {
             const barX = modalX + modalW - 8;
@@ -189,14 +207,6 @@ export default class StorePage {
 
     drawProductGrid(modalX, modalW, startY, dataList, isPrize) {
         this.buyBtnHitboxes = []; this.descBtnHitboxes = [];
-        let offset = 0;
-        
-        if(!isPrize) {
-            this.ctx.fillStyle = INK_COLOR; this.ctx.font = `bold 14px ${safeFont}`;
-            this.ctx.textAlign = 'left'; this.ctx.fillText(`兜里还剩: ${gameModel.coins} 分`, modalX + 20, startY - 10);
-            offset = 25;
-        }
-
         const cols = 2; const gap = 15; const padding = 20;
         const itemW = (modalW - padding * 2 - gap) / 2; const itemH = itemW * 1.45; 
         let rows = 0;
@@ -205,7 +215,7 @@ export default class StorePage {
             rows = Math.max(rows, Math.floor(i / 2) + 1);
             const col = i % 2;
             const x = modalX + padding + col * (itemW + gap);
-            const y = startY + offset + Math.floor(i / 2) * (itemH + gap);
+            const y = startY + Math.floor(i / 2) * (itemH + gap);
 
             this.drawSketchyBox(this.ctx, x, y, itemW, itemH);
             const imgH = itemW * 0.65;
@@ -238,7 +248,7 @@ export default class StorePage {
             }
             this.ctx.textAlign = 'left';
         });
-        return offset + rows * (itemH + gap);
+        return rows * (itemH + gap);
     }
 
     bindTouchEvent() {
@@ -249,15 +259,28 @@ export default class StorePage {
 
         const handleStart = (e) => {
             if (!this.isVisible || this.isLoading) return;
-            touchStartY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
-            startScrollY = this.scrollY; this.isSwiping = false;
+            let clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+            let clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+            
+            // ✨ 判断手指起点是否在滚动裁剪区域内，防止误触发背景滑动
+            const r = this.ui.listRect;
+            if (r && clientY >= r.y && clientY <= r.y + r.h && clientX >= r.x && clientX <= r.x + r.w) {
+                this.canScroll = true;
+                touchStartY = clientY;
+                startScrollY = this.scrollY;
+            } else {
+                this.canScroll = false;
+            }
+            this.isSwiping = false;
         };
 
         const handleMove = (e) => {
-            if (!this.isVisible || this.isLoading || this.activeDescItem || this.maxScrollY <= 0) return;
+            if (!this.isVisible || this.isLoading || this.activeDescItem || this.maxScrollY <= 0 || !this.canScroll) return;
             let currentY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
             let dy = currentY - touchStartY;
+            
             if (Math.abs(dy) > 5) this.isSwiping = true;
+            
             if (this.isSwiping) {
                 this.scrollY = startScrollY + dy;
                 if (this.scrollY > 0) this.scrollY = 0;
@@ -268,7 +291,7 @@ export default class StorePage {
 
         const handleEnd = (e) => {
             if (!this.isVisible) return;
-            if (this.isSwiping) return; // 重点：滑动动作绝对不触发点击购买
+            if (this.isSwiping) return; // 滑动动作绝对不触发点击购买
 
             let cX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
             let cY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
@@ -287,14 +310,14 @@ export default class StorePage {
                 if (hit(this.tabHitboxes[i])) {
                     if (this.currentTab !== this.tabHitboxes[i].id) { 
                         this.currentTab = this.tabHitboxes[i].id; 
-                        this.scrollY = 0; // ✨ 切换Tab强制重置滚动
+                        this.scrollY = 0; // 切换Tab强制重置滚动
                         this.draw(); 
                     } return;
                 }
             }
             
-            // ✨ 如果点击的位置在裁剪区（列表区）外，直接忽略商品和链接的点击判定
-            if (cY < listRect.y || cY > listRect.y + listRect.h) return;
+            // ✨ 如果落点在滚动区之外，直接拦截后续的商品点击事件，防止穿透
+            if (cY < listRect.y || cY > listRect.y + listRect.h || cX < listRect.x || cX > listRect.x + listRect.w) return;
 
             for (let i = 0; i < this.jokeBtnHitboxes.length; i++) {
                 if (hit(this.jokeBtnHitboxes[i])) { if (typeof wx !== 'undefined') wx.showToast({ title: this.jokeBtnHitboxes[i].msg, icon: 'none' }); return; }

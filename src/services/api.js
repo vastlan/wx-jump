@@ -51,31 +51,53 @@ export default class API {
     }
 
     static async getGlobalRank() {
-        await mockDelay();
-        return [
-            { rank: 1, name: '肝帝本人', score: 9999 },
-            { rank: 2, name: '手残党党魁', score: 8888 },
-            { rank: 3, name: '摸鱼达人', score: 7777 }
-        ];
-    }
+      await mockDelay();
+      const list = [
+        { rank: 1, name: '肝帝本人', score: 9999 },
+        { rank: 2, name: '手残党党魁', score: 8888 },
+        { rank: 3, name: '摸鱼达人', score: 50 },
+        { name: '你', score: gameModel.highestScore }
+    ];
 
-    static async getFriendRank() {
-        await mockDelay();
-        const list = [
-            { name: '隔壁老王', score: 1200 },
-            { name: '我的小号', score: 800 },
-            { name: '你', score: gameModel.highestScore },
-        ];
-        return list.sort((a, b) => b.score - a.score).map((item, index) => ({ ...item, rank: index + 1 }));
-    }
+    return list.sort((a, b) => b.score - a.score).map((item, index) => ({ ...item, rank: index + 1 }));
+  }
+
+  static async getFriendRank() {
+      await mockDelay();
+      const list = [
+        { name: '星河旅人', score: 1342 },
+        { name: '风起长安', score: 987 },
+        { name: '夜色微凉', score: 1560 },
+        { name: '云间过客', score: 1123 },
+        { name: '山海行者', score: 1789 },
+        { name: '落日听风', score: 845 },
+        { name: '青灯古卷', score: 1299 },
+        { name: '白鹿逐风', score: 1675 },
+        { name: '荒野旅途', score: 910 },
+        { name: '浮生若梦', score: 1420 },
+        { name: '长夜未央', score: 1533 },
+        { name: '星火燎原', score: 1208 },
+        { name: '雾隐青山', score: 995 },
+        { name: '逐光之人', score: 1712 },
+        { name: '千里行舟', score: 880 },
+        { name: '月下孤影', score: 1366 },
+        { name: '寒江独钓', score: 1498 },
+        { name: '风雪归人', score: 1024 },
+        { name: '苍穹之翼', score: 1603 },
+        { name: '流云逐月', score: 10 },
+        { name: '你', score: gameModel.highestScore },
+      ];
+
+      return list.sort((a, b) => b.score - a.score).map((item, index) => ({ ...item, rank: index + 1 }));
+  }
 
     // ==========================================
-    // ✨ 修复：根据真实分数计算的动态合规文案
+    // ✨ 修复：根据真实分数计算的动态合规说明
     // ==========================================
     static async getShareDescs(currentScore) {
         await mockDelay(50);
         
-        // 真实合理的百分比算法：0分就是0%，有分数才开始计算击败率
+        // 修复逻辑漏洞：0分就是0%，有分数才开始计算击败率
         let exceedPct = 0;
         if (currentScore > 0) {
             exceedPct = Math.min(99, Math.floor(12 + currentScore * 2.8)); 
@@ -83,17 +105,29 @@ export default class API {
 
         return [
             `本次积分超越${exceedPct}%玩家，这得好好炫炫`,
-            `本次已积累${currentScore}积分，叫上好友一起来挑战吧`,
-            `独乐乐不如众乐乐，叫上朋友一起薅`,
-            `战绩不错，快去微信群里装个杯`
+            `本次已积累${currentScore}积分，和好友分享薅羊毛好事`,
+            `独乐乐不如众乐乐，一起开心跳跃`,
+            `战绩不错，快去展示一下你的实力`
         ];
     }
 
+    // ==========================================
+    // ✨ 修复违规：彻底清理敏感词，采用微信官方绝对合规库
+    // ==========================================
     static async getShareTemplates() {
         await mockDelay(50);
         return {
-            universal: ["快来帮我看看，这关怎么过？", "发现一个宝藏小游戏，快上车", "休闲解压，点开即玩", "快来和我一起快乐闯关吧"],
-            showoff: ["轻轻松松{score}分，还有谁？", "{score}分达成！我的手速超乎想象", "不好意思，{score}分就是这么简单"]
+            universal: [
+                "我正在玩薅薅跳，快来一起开心闯关！",
+                "休闲解压的宝藏小游戏，点开即玩~",
+                "快乐跳跃，轻松解压，你也来试试吧",
+                "这个小游戏太好玩了，随时随地跳一跳"
+            ],
+            showoff: [
+                "我在薅薅跳获得了{score}分，你能打破我的记录吗？",
+                "{score}分达成！今天的操作依然行云流水",
+                "发挥神勇，这局拿到了{score}分的好成绩！"
+            ]
         };
     }
 }

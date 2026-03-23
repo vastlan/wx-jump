@@ -2,9 +2,9 @@
 import { camera } from '../scene/index'
 import gameModel from '../game/model'
 import sceneConf from '../../confs/scene-conf' 
-import API from '../services/api'
 
 import reviveModule from '../components/revive-free' 
+// ✨ 未来需要恢复分享时，在此处 import shareModule from '../components/share-btn' 即可
 
 const safeFont = `"-apple-system", BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif`;
 const INK_COLOR = '#1A1A1A'; 
@@ -19,20 +19,11 @@ export default class GameOverPage {
     this.sysInfo = typeof wx !== 'undefined' ? wx.getSystemInfoSync() : { windowWidth: window.innerWidth, windowHeight: window.innerHeight }
     this.width = this.sysInfo.windowWidth; 
     this.height = this.sysInfo.windowHeight;
-    this.hitboxes = { replay: {x:0,y:0,w:0,h:0}, revive: {x:0,y:0,w:0,h:0}, share: {x:0,y:0,w:0,h:0}, home: {x:0,y:0,w:0,h:0}, store: {x:0,y:0,w:0,h:0}, rank: {x:0,y:0,w:0,h:0} }
+    // ✨ 移除了 share 的碰撞盒声明
+    this.hitboxes = { replay: {x:0,y:0,w:0,h:0}, revive: {x:0,y:0,w:0,h:0}, home: {x:0,y:0,w:0,h:0}, store: {x:0,y:0,w:0,h:0}, rank: {x:0,y:0,w:0,h:0} }
     
     this.animTime = 0
     this.animFrame = null
-    
-    this.shareDescs = [];
-    this.shareTemplates = {};
-    this.currentShareDesc = "";
-    this.marqueeX = null;
-    this.scrollWait = 0;
-    this.textW = 0;
-    this.viewW = 0;
-    this.marqueeStartX = 0;
-    this.isTextLong = false;
   }
 
   init(options = {}) {
@@ -53,17 +44,6 @@ export default class GameOverPage {
 
     if (reviveModule.init) reviveModule.init();
     this.bindTouchEvent()
-  }
-
-  async loadData() {
-      try {
-          const [descs, templates] = await Promise.all([ API.getShareDescs(gameModel.score), API.getShareTemplates() ]);
-          this.shareDescs = descs; this.shareTemplates = templates;
-          if (this.shareDescs && this.shareDescs.length > 0) {
-              this.currentShareDesc = this.shareDescs[Math.floor(Math.random() * this.shareDescs.length)];
-              this.marqueeX = null; 
-          }
-      } catch (e) { console.error(e) }
   }
 
   drawSketchyBox(ctx, x, y, w, h) {
@@ -90,13 +70,7 @@ export default class GameOverPage {
     if (!this.isVisible) return;
     this.animTime += 0.08;
 
-    if (this.marqueeX !== null && this.isTextLong && !reviveModule.isBlocking()) {
-        if (this.scrollWait > 0) this.scrollWait -= 16; 
-        else {
-            this.marqueeX -= 1; 
-            if (this.marqueeX < this.marqueeStartX - this.textW) this.marqueeX = this.marqueeStartX + this.viewW;
-        }
-    }
+    // ✨ 未来恢复分享时，在此处调用 shareModule.updateMarquee() 即可
 
     this.draw();
     const reqAnim = typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame : setTimeout;
@@ -110,12 +84,9 @@ export default class GameOverPage {
 
     const cx = this.width / 2
 
-    // ==========================================
-    // ✨ 1. 绝对左侧定位草稿风 🏠 (首页按钮)
-    // ==========================================
     const topHomeW = 32; const topHomeH = 32;
     const safeTop = (this.sysInfo.statusBarHeight || 20) + 10;
-    const topHomeX = 25; // 绝对锁定在屏幕左侧边缘！
+    const topHomeX = 25; 
     const topHomeY = safeTop;
 
     this.ctx.beginPath(); this.ctx.lineWidth = 2.5; this.ctx.strokeStyle = INK_COLOR;
@@ -137,14 +108,12 @@ export default class GameOverPage {
     this.ctx.stroke();
     this.hitboxes.home = { x: topHomeX - 10, y: topHomeY - 10, w: topHomeW + 20, h: topHomeH + 20 };
 
-    // 2. 标题区
     const titleY = this.height * 0.15;
     this.drawStickerText(this.ctx, '本次得分', cx, titleY, Math.floor(this.width * 0.05));
     this.ctx.beginPath(); this.ctx.lineWidth=4; this.ctx.strokeStyle=INK_COLOR; this.ctx.moveTo(cx-50,titleY+5); this.ctx.lineTo(cx+60,titleY-5); this.ctx.stroke();
     this.ctx.save(); this.ctx.translate(cx, titleY + this.height * 0.05); this.ctx.rotate(-0.1); this.drawStickerText(this.ctx, '寄 了', 0, 0, Math.floor(this.width * 0.12)); this.ctx.restore();
     this.drawStickerText(this.ctx, gameModel.score.toString(), cx, this.height * 0.30, Math.floor(this.width * 0.22));
 
-    // 3. 主操作区
     const baseWidth = this.width * 0.60; 
     const btnHeight = this.height * 0.065; 
     const gap = this.height * 0.020;      
@@ -161,47 +130,8 @@ export default class GameOverPage {
     const reviveY = replayY + btnHeight + gap;
     this.hitboxes.revive = reviveModule.draw(this.ctx, baseX, reviveY, baseWidth, btnHeight, this.drawSketchyBox.bind(this));
 
-    const shareY = reviveY + btnHeight + gap;
-    const shareBtnHeight = btnHeight * 1.15; 
-    
-    this.ctx.fillStyle = PAPER_COLOR; this.ctx.fillRect(baseX, shareY, baseWidth, shareBtnHeight);
-    this.drawSketchyBox(this.ctx, baseX, shareY, baseWidth, shareBtnHeight);
-    
-    this.ctx.fillStyle = INK_COLOR; 
-    this.ctx.font = `900 ${Math.floor(this.width * 0.048)}px ${safeFont}`;
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText('薅薅炫耀', cx, shareY + shareBtnHeight * 0.40); 
-
-    const descY = shareY + shareBtnHeight * 0.76;
-    this.ctx.font = `normal ${Math.max(12, Math.floor(this.width * 0.032))}px ${safeFont}`;
-    this.ctx.fillStyle = '#555555';
-    
-    const descText = this.currentShareDesc || "和好友炫耀";
-    const clipPad = 15;
-    
-    if (this.marqueeX === null) {
-        this.textW = this.ctx.measureText(descText).width;
-        this.viewW = baseWidth - clipPad * 2;
-        this.marqueeStartX = baseX + clipPad; 
-        this.marqueeX = this.marqueeStartX;
-        this.scrollWait = 500; 
-        this.isTextLong = this.textW > this.viewW;
-    }
-
-    this.ctx.save();
-    this.ctx.beginPath();
-    this.ctx.rect(this.marqueeStartX, shareY + shareBtnHeight * 0.55, this.viewW, shareBtnHeight * 0.45);
-    this.ctx.clip();
-
-    this.ctx.textAlign = 'left';
-    if (this.isTextLong) this.ctx.fillText(descText, this.marqueeX, descY);
-    else { this.ctx.textAlign = 'center'; this.ctx.fillText(descText, cx, descY); }
-    this.ctx.restore();
-
-    this.hitboxes.share = { x: baseX, y: shareY, w: baseWidth, h: shareBtnHeight };
-
-    // 4. 底部区
-    const subBtnY = shareY + shareBtnHeight + gap * 1.2;
+    // ✨ 因为移除了分享按钮，底部的子按钮矩阵直接紧贴在复活按钮下方
+    const subBtnY = reviveY + btnHeight + gap * 1.2;
     const btnGap = 20; 
     const subBtnW = this.width * 0.30; 
     const subBtnH = btnHeight * 0.8;
@@ -229,21 +159,13 @@ export default class GameOverPage {
     this.texture.needsUpdate = true
   }
 
-  getRandomShareText() {
-      if (!this.shareTemplates || Object.keys(this.shareTemplates).length === 0) return "发现一个宝藏小游戏，快上车！";
-      const keys = Object.keys(this.shareTemplates);
-      const randomKey = keys[Math.floor(Math.random() * keys.length)];
-      const list = this.shareTemplates[randomKey];
-      return list[Math.floor(Math.random() * list.length)].replace(/\{score\}/g, gameModel.score);
-  }
-
   bindTouchEvent() {
     if (this.hasBoundTouch) return
     this.hasBoundTouch = true
 
     const handleTouch = (e) => {
       if (!this.isVisible) return
-      if (reviveModule.isBlocking()) return;
+      if (reviveModule.isBlocking && reviveModule.isBlocking()) return;
 
       let cX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
       let cY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
@@ -259,17 +181,9 @@ export default class GameOverPage {
           reviveModule.handleClick(this.callbacks, this); 
           return; 
       }
-
-      // ✨ 修复违规：彻底去除 imageUrl 控制，微信将默认无警报地拉起合规炫耀面板
-      if (hit(this.hitboxes.share)) { 
-          const shareText = this.getRandomShareText();
-          if (typeof wx !== 'undefined' && wx.shareAppMessage) {
-              wx.shareAppMessage({ title: shareText }); 
-          } else {
-              console.log("【PC端触发炫耀】:", shareText);
-          }
-          return; 
-      }
+      
+      // ✨ 未来恢复分享时，在此处调用：
+      // if (hit(this.hitboxes.share)) { shareModule.handleClick(); return; }
     }
     if (typeof wx !== 'undefined') wx.onTouchEnd(handleTouch);
     else { window.addEventListener('touchend', handleTouch); window.addEventListener('mouseup', handleTouch); }
@@ -278,7 +192,10 @@ export default class GameOverPage {
   show() { 
       this.isVisible = true; 
       this.animTime = 0; 
-      this.loadData(); 
+      
+      // ✨ 未来恢复分享时，取消注释以下这行
+      // if (shareModule.loadData) shareModule.loadData();
+      
       this.animate(); 
       this.instance.visible = true; 
   }

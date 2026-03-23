@@ -22,43 +22,65 @@ class Bottle {
     this.currentPlaneY = 0
 
     this.baseScale = 1.35 
+    
+    // ✨ 核心修复一：精确计算并抵消脚底黑边的物理膨胀厚度
+    // 脚的原始半径 0.45 * 缩放倍率 1.35 * 黑边膨胀系数 ≈ 0.28
+    this.baseYOffset = 0.28 
   }
 
   init() {
     // ==========================================
-    // 【核心视觉】：美拉德高级盲盒玩偶 (Maillard Soft Doll)
+    // ✨ 【终极视觉统一】：纯净 2D 手绘火柴人材质重构
     // ==========================================
 
-    // 方案二：京都木棉
-    // 特点：非常有故事感，踩在“自然系”格子上像在散步，踩在“金属系”格子上像艺术潮玩。
-    const cHead  = 0xFFFDF0; // 奶油白（未染色原棉的颜色）
-    const cBody  = 0x2F3E55; // 深藏青（原色单宁夹克）
-    const cArm   = 0x1A2A40; // 同上
-    const cLeg   = 0xE9E4D4; // 燕麦卡其（重磅斜纹裤）
-    const cFoot  = 0x7A5C4D; // 巧克力棕（复古手工皮鞋）
-    const cBlush = 0xECB390; // 杏橘色（透出一种健康、阳光的穿搭氛围）
+    // 1. 废弃所有受光照影响的 Standard 材质，改用纯粹的 Basic 材质
+    const matWhite = new THREE.MeshBasicMaterial({ color: 0xFFFFFF });
+    const matBlack = new THREE.MeshBasicMaterial({ color: 0x1A1A1A });
+    
+    // 2. 核心灵魂：背面渲染的粗黑边框材质
+    const outlineMat = new THREE.MeshBasicMaterial({ color: 0x1A1A1A, side: THREE.BackSide });
 
-    const matParams = { roughness: 0.5, metalness: 0.0 }
-    const matHead = new THREE.MeshStandardMaterial({ color: cHead, ...matParams })
-    const matBody = new THREE.MeshStandardMaterial({ color: cBody, oughness: 0.5, metalness: 0.1 })
-    const matArm  = new THREE.MeshStandardMaterial({ color: cArm,  ...matParams })
-    const matLeg  = new THREE.MeshStandardMaterial({ color: cLeg,  ...matParams })
-    const matFoot = new THREE.MeshStandardMaterial({ color: cFoot, roughness: 0.2, metalness: 0.4 })
-    const matEye  = new THREE.MeshStandardMaterial({ color: cFoot, roughness: 0.3, metalness: 0.2 })
-    const matBlush = new THREE.MeshStandardMaterial({ color: cBlush, roughness: 0.8, metalness: 0 })
+    // 映射回原代码的变量名，确保不报任何 undefined 错误
+    const matHead = matWhite;
+    const matBody = matWhite;
+    const matArm  = matWhite;
+    const matLeg  = matWhite;
+    const matFoot = matWhite;
+    const matEye  = matBlack; 
+    const matBlush = matWhite; 
+
+    // ✨ 智能描边生成器：动态计算各个几何体的膨胀比例，保持黑边粗细均匀
+    const addOutline = (mesh, type, radius, height) => {
+        const thickness = 0.20; // 描边粗细
+        const outline = new THREE.Mesh(mesh.geometry, outlineMat);
+        
+        if (type === 'sphere') {
+            const scale = (radius + thickness) / radius;
+            outline.scale.setScalar(scale);
+        } else if (type === 'cylinder') {
+            // 圆柱体只膨胀侧面，上下底面不膨胀，以免在关节处刺穿
+            const scaleXZ = (radius + thickness) / radius;
+            outline.scale.set(scaleXZ, 1.0, scaleXZ);
+        }
+        mesh.add(outline);
+    }
 
     const createSmoothBone = (rTop, rBot, h, mat) => {
       const group = new THREE.Group()
+      
       const cyl = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, 32), mat)
       cyl.castShadow = true
+      addOutline(cyl, 'cylinder', Math.max(rTop, rBot), h) // 为圆柱加黑边
       
       const topSph = new THREE.Mesh(new THREE.SphereGeometry(rTop, 32, 16), mat)
       topSph.position.y = h / 2
       topSph.castShadow = true
+      addOutline(topSph, 'sphere', rTop) // 为顶部关节加黑边
       
       const botSph = new THREE.Mesh(new THREE.SphereGeometry(rBot, 32, 16), mat)
       botSph.position.y = -h / 2
       botSph.castShadow = true
+      addOutline(botSph, 'sphere', rBot) // 为底部关节加黑边
       
       group.add(cyl, topSph, botSph)
       return group
@@ -67,26 +89,24 @@ class Bottle {
     const obj = this.obj = new THREE.Object3D()
     obj.position.set(bottleConf.initPosition.x, bottleConf.initPosition.y + 10, bottleConf.initPosition.z)
 
-    // ==========================================
-    // ✨【光影修复】：锁死辅光角度，消除全屏高亮 Bug
-    // ==========================================
+    // 灯光保留：虽然材质不受光照影响，但需要灯光来给地面投射黑色的火柴人影子
     const dollFillLight = new THREE.DirectionalLight(0xfff0e6, 0.4)
     dollFillLight.position.set(3, 5, 4)
     obj.add(dollFillLight)
-    // 关键修复：把 Target 也挂载到本体上，确保照射相对角度永远不变！
     obj.add(dollFillLight.target) 
 
     this.directionWrapper = new THREE.Object3D()
     const bottle = this.bottle = new THREE.Object3D()
 
-    bottle.position.y = 0 
+    // ✨ 核心修复二：初始加载时，将火柴人整体拔高一个“脚底黑边”的厚度
+    bottle.position.y = this.baseYOffset 
     bottle.scale.set(this.baseScale, this.baseScale, this.baseScale)
 
     this.torsoGroup = new THREE.Object3D()
     this.torsoGroup.position.y = 1.6 
 
     // ------------------------------------------
-    // 头部 
+    // 头部 (保持原比例)
     // ------------------------------------------
     this.headGroup = new THREE.Group()
     
@@ -94,6 +114,13 @@ class Bottle {
     headGeom.scale(1.1, 0.9, 1.1) 
     this.head = new THREE.Mesh(headGeom, matHead)
     this.head.castShadow = true
+    
+    // 头部的椭球体手动计算描边比例
+    const headOutline = new THREE.Mesh(headGeom, outlineMat);
+    const ht = 0.20;
+    headOutline.scale.set((1.45*1.1+ht)/(1.45*1.1), (1.45*0.9+ht)/(1.45*0.9), (1.45*1.1+ht)/(1.45*1.1));
+    this.head.add(headOutline);
+    
     this.headGroup.add(this.head)
 
     const eyeGeom = new THREE.SphereGeometry(0.12, 16, 16)
@@ -117,14 +144,14 @@ class Bottle {
     this.torsoGroup.add(this.headGroup)
 
     // ------------------------------------------
-    // 身体 
+    // 身体 (保持原比例)
     // ------------------------------------------
     this.body = createSmoothBone(1.05, 0.75, 2.0, matBody)
     this.body.position.y = 1.2
     this.torsoGroup.add(this.body)
 
     // ------------------------------------------
-    // 双臂
+    // 双臂 (保持原比例)
     // ------------------------------------------
     this.armL = new THREE.Object3D()
     this.armL.position.set(-1.4, 2.0, 0) 
@@ -136,6 +163,7 @@ class Bottle {
     const handL = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 16), matArm)
     handL.position.set(-0.15, -1.4, 0) 
     handL.castShadow = true
+    addOutline(handL, 'sphere', 0.32) // 手掌黑边
     this.armL.add(handL)
     this.torsoGroup.add(this.armL)
 
@@ -149,11 +177,12 @@ class Bottle {
     const handR = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 16), matArm)
     handR.position.set(0.15, -1.4, 0)
     handR.castShadow = true
+    addOutline(handR, 'sphere', 0.32) // 手掌黑边
     this.armR.add(handR)
     this.torsoGroup.add(this.armR)
 
     // ------------------------------------------
-    // 腿部与脚丫
+    // 腿部与脚丫 (保持原比例)
     // ------------------------------------------
     const createLeg = (xOffset) => {
       const hip = new THREE.Object3D()
@@ -169,6 +198,13 @@ class Bottle {
       const foot = new THREE.Mesh(footGeom, matFoot)
       foot.position.set(0, -1.4, -0.2) 
       foot.castShadow = true
+      
+      // 脚底板的椭球体手动计算描边比例
+      const footOutline = new THREE.Mesh(footGeom, outlineMat);
+      const ft = 0.20;
+      footOutline.scale.set((0.45*1.0+ft)/(0.45*1.0), (0.45*0.45+ft)/(0.45*0.45), (0.45*1.4+ft)/(0.45*1.4));
+      foot.add(footOutline);
+
       hip.add(foot)
 
       return hip
@@ -185,6 +221,10 @@ class Bottle {
     obj.add(this.directionWrapper)
   }
 
+  // ==========================================
+  // 下方所有的核心动画和位移逻辑【100% 保持不动】
+  // ==========================================
+
   reset() {
     this.status = 'stop'
     this.flyingTime = 0
@@ -192,6 +232,10 @@ class Bottle {
     
     this.directionWrapper.rotation.set(0, -Math.PI / 2, 0) 
     this.bottle.rotation.set(0, 0, 0)
+    
+    // ✨ 核心修复三：填补原版生命周期漏洞！
+    // 必须强制归位，否则跌落动画设置的 y: 1.5 缓存会残留到新的一局！
+    this.bottle.position.set(0, this.baseYOffset, 0) 
     
     this.torsoGroup.position.y = 1.6 
     this.torsoGroup.rotation.set(0, 0, 0)
@@ -343,31 +387,21 @@ class Bottle {
       
       const charCharge = Math.min(this.charge, 0.9) 
       
-      // ==========================================
-      // 【终极物理优化】：取消全局压扁！
-      // 只压缩腿部，同时让上半身保持圆润，随着腿部下沉！
-      // ==========================================
       const squashY = Math.max(1 - 0.45 * charCharge, 0.4) 
       const stretchXZ = Math.sqrt(1 / squashY)
 
-      // 锁定全局放大系数，严禁全身变形！
       this.bottle.scale.set(this.baseScale, this.baseScale, this.baseScale)
 
-      // 仅仅压缩双腿（模拟屈膝受力）
       this.legL.scale.set(stretchXZ, squashY, stretchXZ)
       this.legR.scale.set(stretchXZ, squashY, stretchXZ)
 
-      // 精确的脚底锚定数学：
-      // 脚底在骨盆(Y=1.6)下方的距离正好是 -1.4。腿部被压缩时，为了保证脚底板不悬空，必须整体下沉。
       const dropY = 1.4 * (1 - squashY)
       const newY = 1.6 - dropY
 
-      // 将腿部和完整的上半身(头胸手)一起平移下沉
       this.legL.position.y = newY
       this.legR.position.y = newY
       this.torsoGroup.position.y = newY
 
-      // 身体前倾和手臂蓄力后摆
       this.torsoGroup.rotation.x = -0.05 - (0.4 * charCharge)
       this.armL.rotation.x = -0.8 * charCharge 
       this.armR.rotation.x = -0.8 * charCharge 
@@ -390,10 +424,6 @@ class Bottle {
       this.obj.position.x = this.startPos.x + this.velocity.vx * t
       this.obj.position.z = this.startPos.z + this.velocity.vz * t
 
-      // if (this.flyingTime % 2 === 0) {
-      //   tail.createTail(scene.instance, this.obj.position, this.directionWrapper.rotation)
-      // }
-
       const currentDx = this.obj.position.x - this.startPos.x
       const currentDz = this.obj.position.z - this.startPos.z
       const distanceMoved = Math.sqrt(currentDx * currentDx + currentDz * currentDz)
@@ -405,7 +435,6 @@ class Bottle {
         this.status = 'stop'
         this.obj.position.y = targetY 
         
-        // 落地时短暂的全局果冻 Q 弹缓冲，因为极其短暂（50ms），只会增加可爱感
         CustomAnimation.to(this.bottle.scale, { x: 1.2 * this.baseScale, y: 0.6 * this.baseScale, z: 1.2 * this.baseScale }, 0.05)
         setTimeout(() => {
           CustomAnimation.to(this.bottle.scale, { x: this.baseScale, y: this.baseScale, z: this.baseScale }, 0.1)

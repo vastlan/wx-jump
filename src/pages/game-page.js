@@ -74,9 +74,8 @@ export default class GamePage {
     this.isGameOver = false
     this.clearBonusTimer() 
     
-    // ✨ 新开一局时，通知免费组件刷新5次机会
-    reviveFree.onGameStart();
-
+    if (reviveFree.onGameStart) reviveFree.onGameStart();
+    
     if (this.chargeAudioTimer) {
         clearInterval(this.chargeAudioTimer)
         this.chargeAudioTimer = null
@@ -103,7 +102,8 @@ export default class GamePage {
     })
     this.blocks = []
     
-    this.scene.background.setTargetColor('#81C9B5')
+    // 背景设为纯净白纸
+    this.scene.background.setTargetColor('#F5F2E9')
 
     const initWidth = 18
     const initDistance = initWidth + 2 + Math.random() * 2
@@ -130,15 +130,11 @@ export default class GamePage {
     this.updateCamera()
   }
 
-  // ==========================================
-  // ✨ 核心修复：逻辑，防止死机卡顿
-  // ==========================================
   revive() {
     this.isGameOver = false;
     this.isSliding = false;
     this.isFeverMode = false;
 
-    // 1. 如果方块塌陷了，拉回来还原！
     if (this.standingBlock) {
         this.standingBlock.hasCollapsed = false;
         this.standingBlock.collapseTimeLeft = 10;
@@ -149,27 +145,22 @@ export default class GamePage {
     }
     this.activeCollapsingBlock = null;
 
-    // 2. 彻底重置火柴人的网格旋转态，治愈“起不来”的残影
     if (this.bottle) {
         this.bottle.reset(); 
         this.bottle.status = 'stop'; 
 
-        // 计算脚下中心坐标
         const safeX = this.standingBlock.baseX !== undefined ? this.standingBlock.baseX : this.standingBlock.instance.position.x;
         const safeZ = this.standingBlock.baseZ !== undefined ? this.standingBlock.baseZ : this.standingBlock.instance.position.z;
 
-        // 安全降落
         this.bottle.obj.position.set(safeX, this.standingBlock.instance.position.y + blockConf.height / 2, safeZ);
     }
 
     this.updateCamera();
   }
-  // ==========================================
 
   bindTouchEvent() {
     wx.onTouchStart(() => {
       const stage = gameModel.getStage();
-      // ✨ 核心修复：允许在 'game-revive' 状态下接收触摸指令！
       if ((stage !== 'game-page' && stage !== 'game-revive') || this.isGameOver || this.isSliding || this.isFeverMode) return 
       this.clearBonusTimer() 
       
@@ -195,7 +186,6 @@ export default class GamePage {
 
     wx.onTouchEnd(() => {
       const stage = gameModel.getStage();
-      // ✨ 同理修复！
       if ((stage !== 'game-page' && stage !== 'game-revive') || this.isGameOver || this.isSliding || this.isFeverMode) return
       
       if (this.chargeAudioTimer) { clearInterval(this.chargeAudioTimer); this.chargeAudioTimer = null }
@@ -597,10 +587,14 @@ export default class GamePage {
     const isCuboid = Math.random() > 0.5 
     let newBlock
   
+    // ✨ 注入手绘网格参数，自动在狂草和规整之间随机摇摆
+    const isNeat = Math.random() < 0.33;
+    const isMixed = Math.random() < 0.3;
+
     if (isCuboid) {
-      newBlock = new Cuboid(newX, targetY, newZ, 'default', nextWidth)
+      newBlock = new Cuboid(newX, targetY, newZ, 'default', nextWidth, { isMixed, isNeat })
     } else {
-      newBlock = new Cylinder(newX, targetY, newZ, 'default', nextWidth)
+      newBlock = new Cylinder(newX, targetY, newZ, 'default', nextWidth, { allowShapes: true, isMixed, isNeat })
     }
 
     newBlock.baseX = newX;
@@ -621,14 +615,7 @@ export default class GamePage {
         newBlock.moveSpeed = 0.001; 
         newBlock.moveRange = 4;
         newBlock.moveOffset = 0;
-        
-        const buffMat = new THREE.MeshStandardMaterial({ color: 0xF3E5AB, roughness: 0.85, metalness: 0 }); 
-        newBlock.instance.traverse(c => { 
-            if (c.isMesh) {
-                if (c.material) c.material.dispose(); 
-                c.material = buffMat; 
-            }
-        });
+        // ✨ 已移除了“连击”文字！
     } else {
         const difficultyScale = Math.min((this.stepCount - 10) / 100, 0.4); 
         
@@ -642,14 +629,34 @@ export default class GamePage {
         if (this.stepCount > 25) isMirage = Math.random() < (0.15 + difficultyScale * 0.4); 
 
         if (spawnFever) {
-            newBlock.hasFeverItem = true;
-            const orbGeom = new THREE.OctahedronGeometry(1.8, 0); 
-            const orbMat = new THREE.MeshBasicMaterial({ color: 0xFFEAA7, wireframe: false }); 
-            const orb = new THREE.Mesh(orbGeom, orbMat);
-            orb.position.y = blockConf.height / 2 + 3;
-            newBlock.feverOrb = orb;
-            newBlock.instance.add(orb);
-        }
+          newBlock.hasFeverItem = true;
+          // 根据宿主方块的规整度决定光球的扭曲度
+          const orbGeom = new THREE.SphereGeometry(1.5, 8, 8); 
+          if (!isNeat) {
+              if (orbGeom.vertices) {
+                  orbGeom.vertices.forEach(v => {
+                      v.x += (Math.random() - 0.5) * 1.5;
+                      v.y += (Math.random() - 0.5) * 1.5;
+                      v.z += (Math.random() - 0.5) * 1.5;
+                  });
+                  orbGeom.computeVertexNormals();
+              } else if (orbGeom.attributes && orbGeom.attributes.position) {
+                  const pos = orbGeom.attributes.position;
+                  for (let i = 0; i < pos.count; i++) {
+                      pos.setX(i, pos.getX(i) + (Math.random() - 0.5) * 1.5);
+                      pos.setY(i, pos.getY(i) + (Math.random() - 0.5) * 1.5);
+                      pos.setZ(i, pos.getZ(i) + (Math.random() - 0.5) * 1.5);
+                  }
+                  orbGeom.computeVertexNormals();
+              }
+          }
+          
+          const orbMat = new THREE.MeshBasicMaterial({ color: 0x1A1A1A, wireframe: true }); 
+          const orb = new THREE.Mesh(orbGeom, orbMat);
+          orb.position.y = blockConf.height / 2 + 3;
+          newBlock.feverOrb = orb;
+          newBlock.instance.add(orb);
+      }
 
         if (isMoving) {
             newBlock.isMoving = true;
@@ -671,15 +678,8 @@ export default class GamePage {
 
         if (isIce) {
             newBlock.isIce = true;
-            const iceMat = new THREE.MeshPhysicalMaterial({
-                color: 0x88ddff, transmission: 0.6, transparent: true, opacity: 1, metalness: 0.2, roughness: 0.1, ior: 1.5, emissive: 0x113355, castShadow: true
-            });
-            newBlock.instance.traverse((child) => {
-                if (child.isMesh) {
-                    if (child.material) child.material.dispose(); 
-                    child.material = iceMat;
-                }
-            });
+            // ✨ 只给冰块设置文字
+            newBlock.setSketchText('冰块');
         }
         
         if (isMirage) {
@@ -687,12 +687,24 @@ export default class GamePage {
             newBlock.mirageOffset = Math.random() * Math.PI * 2; 
             newBlock.mirageMaterials = []; 
             newBlock.instance.traverse(c => {
-                if (c.isMesh && c.material) {
-                    const newMat = c.material.clone();
-                    newMat.transparent = true;
-                    c.material.dispose(); 
-                    c.material = newMat;
-                    newBlock.mirageMaterials.push(newMat);
+                if ((c.isMesh || c.isLine) && c.material) {
+                    if (Array.isArray(c.material)) {
+                        const newMats = [];
+                        c.material.forEach(m => {
+                            const newM = m.clone();
+                            newM.transparent = true;
+                            newBlock.mirageMaterials.push(newM);
+                            newMats.push(newM);
+                            m.dispose();
+                        });
+                        c.material = newMats;
+                    } else {
+                        const newMat = c.material.clone();
+                        newMat.transparent = true;
+                        c.material.dispose(); 
+                        c.material = newMat;
+                        newBlock.mirageMaterials.push(newMat);
+                    }
                 }
             });
         }

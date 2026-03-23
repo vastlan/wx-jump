@@ -14,12 +14,15 @@ class GameModel {
     this.highestScore = 0
     this.initHighestScore()
 
-    // ✨ 新增：消费积分数据（用于商城购买皮肤/道具，可扣减）
+    // 消费积分数据（用于商城购买皮肤/道具，可扣减）
     this.coins = 0
     this.initCoins()
+
+    // ✨ 新增：持久化难度选择状态
+    this.currentDifficulty = 'defaultDiff' // 默认选中第一个
+    this.initDifficulty()
   }
 
-  // 初始化：从微信本地缓存或浏览器缓存中读取最高分
   initHighestScore() {
     if (typeof wx !== 'undefined') {
       const score = wx.getStorageSync('highestScore')
@@ -30,7 +33,6 @@ class GameModel {
     }
   }
 
-  // ✨ 初始化：读取本地存储的消费积分（钱包余额）
   initCoins() {
     if (typeof wx !== 'undefined') {
       const coins = wx.getStorageSync('user_coins')
@@ -41,9 +43,28 @@ class GameModel {
     }
   }
 
-  // 保存结算数据：同时处理“最高分刷新”和“积分入账”
+  // ✨ 初始化：读取本地存储的难度选项
+  initDifficulty() {
+    if (typeof wx !== 'undefined') {
+      const diff = wx.getStorageSync('user_difficulty')
+      if (diff) this.currentDifficulty = diff
+    } else {
+      const diff = localStorage.getItem('user_difficulty')
+      if (diff) this.currentDifficulty = diff
+    }
+  }
+
+  // ✨ 保存难度设置
+  setDifficulty(diffKey) {
+    this.currentDifficulty = diffKey
+    if (typeof wx !== 'undefined') {
+      wx.setStorageSync('user_difficulty', this.currentDifficulty)
+    } else {
+      localStorage.setItem('user_difficulty', this.currentDifficulty)
+    }
+  }
+
   saveHighestScore() {
-    // 1. 排行榜逻辑：只记录历史最高分
     if (this.score > this.highestScore) {
       this.highestScore = this.score
       if (typeof wx !== 'undefined') {
@@ -53,7 +74,6 @@ class GameModel {
       }
     }
 
-    // 2. ✨ 商城逻辑：本局的得分按 1:1 转化为消费积分，存入钱包
     if (this.score > 0) {
       this.coins += this.score
       if (typeof wx !== 'undefined') {
@@ -65,7 +85,6 @@ class GameModel {
     }
   }
 
-  // ✨ 新增：商城扣款方法（供后续商城页面调用）
   deductCoins(amount) {
     if (this.coins >= amount) {
       this.coins -= amount
@@ -74,9 +93,9 @@ class GameModel {
       } else {
         localStorage.setItem('user_coins', this.coins)
       }
-      return true // 扣款成功
+      return true 
     }
-    return false // 余额不足
+    return false 
   }
 
   getStage() {

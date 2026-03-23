@@ -1,6 +1,68 @@
 export default {
+  addictedDiff: {
+    label: '摸鱼日常',
+    // 节奏流（最上瘾版本）🔥推荐
+    safeSteps: 3,
+    peakSteps: 100,
+    minHardProb: 0.50,
+    maxHardProb: 0.90,
+    widthMax: 18.0,
+    widthMin: 4.2,
+    gapBase: 5.8,
+    gapExtraMax: 150.0,
+    weightMoving: 1.0,       
+    weightIce: 0.8,          
+    weightCollapse: 0.6,     
+    weightMirage: 0.5,   
+    maxTrapsEarly: 1,        
+    maxTrapsLate: 4,    
+    tensionThreshold: 6.2,
+    pityGapMax: 3.5,
+    pityWidthMin: 15.5
+  },
+  easyDiff: {
+    label: '宝宝巴士',      // 极低门槛，哄玩家开心，疯狂给甜枣
+    safeSteps: 15,            // 15步以内绝对安全
+    peakSteps: 150,           // 难度上升极其缓慢
+    minHardProb: 0.05,        // 困难块极少
+    maxHardProb: 0.40,
+    widthMax: 20.0,
+    widthMin: 10.0,           // 哪怕最难，格子也很宽
+    gapBase: 1.0,
+    gapExtraMax: 12.0,        // 跨度不会太远
+    weightMoving: 1.0,
+    weightIce: 0.5,
+    weightCollapse: 0.2,
+    weightMirage: 0.1,
+    maxTrapsEarly: 1,
+    maxTrapsLate: 2,          // 最多只有2个陷阱叠加
+    tensionThreshold: 4.0,    // 极低的压力阈值：稍微跳两步就给一个巨大无比的甜枣
+    pityGapMax: 2.0,
+    pityWidthMin: 18.0
+  },
+  classicDiff: {
+    label: '经典跳跳',
+    // 微信跳一跳经典耐玩型
+    safeSteps: 5,
+    peakSteps: 120,
+    minHardProb: 0.35,
+    maxHardProb: 0.75,
+    widthMax: 18.0,
+    widthMin: 6.5,
+    gapBase: 5.5,
+    gapExtraMax: 120.0,
+    weightMoving: 1.0,       
+    weightIce: 0.8,          
+    weightCollapse: 0.6,     
+    weightMirage: 0.5,   
+    maxTrapsEarly: 1,        
+    maxTrapsLate: 4,    
+    tensionThreshold: 5.5,
+    pityGapMax: 4.0,
+    pityWidthMin: 14.0
+  },
   defaultDiff: {
-    lebel: '正常',
+    lebel: '名称待定',
     // 1. 进度系统
     safeSteps: 3,            // 新手保护期：前 X 步绝对是简单格子
     peakSteps: 100,          // 进度峰值：走到第 X 步时，游戏大盘进度拉满
@@ -30,50 +92,8 @@ export default {
     pityGapMax: 3.0,         // 甜枣格子的最大间距 (强行拉近)
     pityWidthMin: 16.0       // 甜枣格子的最小宽度 (强行变大)
   },
-  classicDiff: {
-    label: '经典',
-    // 微信跳一跳经典耐玩型
-    safeSteps: 5,
-    peakSteps: 120,
-    minHardProb: 0.35,
-    maxHardProb: 0.75,
-    widthMax: 18.0,
-    widthMin: 6.5,
-    gapBase: 5.5,
-    gapExtraMax: 120.0,
-    weightMoving: 1.0,       
-    weightIce: 0.8,          
-    weightCollapse: 0.6,     
-    weightMirage: 0.5,   
-    maxTrapsEarly: 1,        
-    maxTrapsLate: 4,    
-    tensionThreshold: 5.5,
-    pityGapMax: 4.0,
-    pityWidthMin: 14.0
-  },
-  addictedDiff: {
-    label: '推荐',
-    // 节奏流（最上瘾版本）🔥推荐
-    safeSteps: 3,
-    peakSteps: 100,
-    minHardProb: 0.50,
-    maxHardProb: 0.90,
-    widthMax: 18.0,
-    widthMin: 4.2,
-    gapBase: 5.8,
-    gapExtraMax: 150.0,
-    weightMoving: 1.0,       
-    weightIce: 0.8,          
-    weightCollapse: 0.6,     
-    weightMirage: 0.5,   
-    maxTrapsEarly: 1,        
-    maxTrapsLate: 4,    
-    tensionThreshold: 6.2,
-    pityGapMax: 3.5,
-    pityWidthMin: 15.5
-  },
   challengeDiff: {
-    label: '挑战',
+    label: '高手挑战',
     // 高手挑战型（抖音爆分流）
     safeSteps: 2,
     peakSteps: 80,
@@ -93,25 +113,45 @@ export default {
     pityGapMax: 3.0,
     pityWidthMin: 16.0
   },
+  hardDiff: {
+    label: '血压飙升',      // 挑衅玩家：陷阱密集，甜枣抠门
+    safeSteps: 2,             // 落地没多久就开始上难度
+    peakSteps: 60,            // 难度飙升很快
+    minHardProb: 0.30,
+    maxHardProb: 0.95,
+    widthMax: 15.0,
+    widthMin: 3.5,            // 格子非常窄
+    gapBase: 3.0,
+    gapExtraMax: 200.0,
+    weightMoving: 1.0,
+    weightIce: 1.0,
+    weightCollapse: 1.0,
+    weightMirage: 0.8,
+    maxTrapsEarly: 2,
+    maxTrapsLate: 4,          // 陷阱叠满
+    tensionThreshold: 9.0,    // 甜枣给得非常抠门，玩家需要长时间处于高压状态
+    pityGapMax: 4.0,
+    pityWidthMin: 12.0
+  },
   tormentDiff: {
-    label: '折磨',
+    label: '恶意折磨',
     // 恶意折磨流（主播效果拉满）
-    safeSteps: 1,
-    peakSteps: 60,
-    minHardProb: 0.80,
+    safeSteps: 0,
+    peakSteps: 30,
+    minHardProb: 0.60,
     maxHardProb: 1.00,
-    widthMax: 16.0,
-    widthMin: 4.0,
-    gapBase: 6.5,
+    widthMax: 12.0,
+    widthMin: 2.5,
+    gapBase: 5.0,
     gapExtraMax: 220.0,
-    weightMoving: 1.0,       
-    weightIce: 0.8,          
-    weightCollapse: 0.6,     
-    weightMirage: 0.5,   
-    maxTrapsEarly: 1,        
+    weightMoving: 1.5,       
+    weightIce: 1.5,          
+    weightCollapse: 1.5,     
+    weightMirage: 1.5,   
+    maxTrapsEarly: 3,        
     maxTrapsLate: 4,    
-    tensionThreshold: 10.0,
-    pityGapMax: 2.5,
-    pityWidthMin: 17.0
+    tensionThreshold: 15.0,
+    pityGapMax: 6.0,
+    pityWidthMin: 8.0
   }
 }

@@ -2,6 +2,8 @@
 import { camera } from '../scene/index'
 import gameModel from '../game/model'
 import sceneConf from '../../confs/scene-conf' 
+// ✨ 引入难度配置文件用于渲染列表
+import gameDiffConf from '../../confs/game-diff-conf' 
 
 const safeFont = `"-apple-system", BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif`;
 const INK_COLOR = '#1A1A1A'; 
@@ -12,12 +14,15 @@ export default class StartPage {
     this.callbacks = callbacks
     this.isVisible = false
     this.hasBoundTouch = false
+    
+    // ✨ 控制难度弹窗的开关
+    this.isShowingDiffModal = false 
 
     this.sysInfo = typeof wx !== 'undefined' ? wx.getSystemInfoSync() : { windowWidth: window.innerWidth, windowHeight: window.innerHeight }
     this.width = this.sysInfo.windowWidth
     this.height = this.sysInfo.windowHeight
 
-    this.hitboxes = { play: { x:0,y:0,w:0,h:0 }, rank: { x:0,y:0,w:0,h:0 }, store: { x:0,y:0,w:0,h:0 } }
+    this.hitboxes = { play: { x:0,y:0,w:0,h:0 }, rank: { x:0,y:0,w:0,h:0 }, store: { x:0,y:0,w:0,h:0 }, diffBtn: { x:0,y:0,w:0,h:0 } }
   }
 
   init(options) {
@@ -105,25 +110,69 @@ export default class StartPage {
     this.drawStickerText(this.ctx, `最高记录: ${gameModel.highestScore}`, cx, titleY + titleFontSize * 1.1, scoreFontSize);
     this.drawSketchyLine(this.ctx, cx - this.width*0.2, titleY + titleFontSize * 1.1 + 12, this.width*0.4);
 
-    const playW = this.width * 0.45;
-    const playH = this.height * 0.07;
+    // ==========================================
+    // ✨ 核心布局重构：左侧开始游戏 + 右侧难度筛选按钮
+    // ==========================================
     const playY = this.height * 0.55;
-    const playX = cx - playW / 2;
+    const playH = this.height * 0.07;
+    const playW = this.width * 0.38; 
+    const diffW = this.width * 0.30; 
+    const gapBtn = 15; 
+    const totalRowW = playW + diffW + gapBtn;
+    const startX = cx - totalRowW / 2; 
 
+    // 1. 绘制开始游戏按钮 (左侧)
+    const playX = startX;
     this.ctx.fillStyle = PAPER_COLOR; this.ctx.fillRect(playX, playY, playW, playH);
     this.drawSketchyBox(this.ctx, playX, playY, playW, playH);
     this.ctx.fillStyle = INK_COLOR;
-    this.ctx.font = `bold ${Math.floor(this.width * 0.06)}px ${safeFont}`;
-    this.ctx.fillText('开始游戏', cx, playY + playH / 2);
+    this.ctx.font = `bold ${Math.floor(this.width * 0.055)}px ${safeFont}`;
+    this.ctx.fillText('开始游戏', playX + playW / 2, playY + playH / 2);
     this.hitboxes.play = { x: playX, y: playY, w: playW, h: playH };
 
+    // 2. 绘制难度筛选按钮 (右侧)
+    const diffX = startX + playW + gapBtn;
+    this.ctx.fillStyle = PAPER_COLOR; this.ctx.fillRect(diffX, playY, diffW, playH);
+    this.drawSketchyBox(this.ctx, diffX, playY, diffW, playH);
+    
+    // 获取当前选中的难度 Label
+    const curDiffKey = gameModel.currentDifficulty;
+    const curDiffConf = gameDiffConf[curDiffKey] || gameDiffConf['defaultDiff'];
+    const diffLabel = curDiffConf.label || curDiffConf.lebel || '正常';
+    
+    this.ctx.fillStyle = INK_COLOR;
+    // ✨ 为了给右侧的小标记留出空间，稍微缩小字号并测量主标题宽度
+    this.ctx.font = `bold ${Math.floor(this.width * 0.042)}px ${safeFont}`;
+    const labelW = this.ctx.measureText(diffLabel).width;
+    
+    // 计算文本和右侧符号矩阵的坐标
+    const textCenter = diffX + diffW / 2 - 12; // 主文本向左挪一点点
+    const iconCenter = textCenter + labelW / 2 + 16; // 符号紧贴在主文本右侧
+
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    
+    // 绘制主难度标题
+    this.ctx.fillText(diffLabel, textCenter, playY + playH / 2);
+    
+    // ✨ 绘制右上角极小的“难度”二字作为认知引导
+    this.ctx.font = `900 ${Math.max(9, Math.floor(this.width * 0.022))}px ${safeFont}`;
+    this.ctx.fillText('难度', iconCenter, playY + playH / 2 - 8);
+    
+    // ✨ 绘制下方的下拉符号
+    this.ctx.font = `900 ${Math.max(10, Math.floor(this.width * 0.028))}px ${safeFont}`;
+    this.ctx.fillText('▼', iconCenter, playY + playH / 2 + 8);
+
+    this.hitboxes.diffBtn = { x: diffX, y: playY, w: diffW, h: playH };
+
+    // 底部次级按钮矩阵
     const subBtnW = this.width * 0.28; 
     const subBtnH = this.height * 0.055;
     const subBtnY = playY + playH + this.height * 0.04;
-    const btnGap = 20; 
+    const subBtnGap = 20; 
     
-    const storeX = cx - subBtnW - btnGap / 2;
-    const rankX = cx + btnGap / 2;
+    const storeX = cx - subBtnW - subBtnGap / 2;
+    const rankX = cx + subBtnGap / 2;
 
     this.ctx.fillStyle = PAPER_COLOR; this.ctx.fillRect(storeX, subBtnY, subBtnW, subBtnH);
     this.drawSketchyOpenBox(this.ctx, storeX, subBtnY, subBtnW, subBtnH);
@@ -140,6 +189,58 @@ export default class StartPage {
     this.hitboxes.store = { x: storeX, y: subBtnY, w: subBtnW, h: subBtnH };
     this.hitboxes.rank = { x: rankX, y: subBtnY, w: subBtnW, h: subBtnH };
 
+    // ==========================================
+    // ✨ 弹窗：难度选项列表渲染
+    // ==========================================
+    if (this.isShowingDiffModal) {
+        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        this.ctx.fillRect(0, 0, this.width, this.height);
+
+        const keys = Object.keys(gameDiffConf);
+        const modalW = this.width * 0.7;
+        const itemH = 50;
+        const padding = 20;
+        const modalH = keys.length * itemH + padding * 2 + 50; 
+        const modalX = (this.width - modalW) / 2;
+        const modalY = (this.height - modalH) / 2;
+
+        // 弹窗背景
+        this.ctx.fillStyle = PAPER_COLOR;
+        this.ctx.fillRect(modalX, modalY, modalW, modalH);
+        this.drawSketchyBox(this.ctx, modalX, modalY, modalW, modalH);
+
+        // 弹窗标题
+        this.ctx.fillStyle = INK_COLOR;
+        this.ctx.font = `900 ${Math.floor(this.width * 0.055)}px ${safeFont}`;
+        this.ctx.fillText('选择游戏难度', cx, modalY + 35);
+        this.drawSketchyLine(this.ctx, modalX + 20, modalY + 55, modalW - 40);
+
+        this.hitboxes.diffOptions = [];
+        
+        // 渲染遍历选项
+        keys.forEach((key, index) => {
+            const itemY = modalY + 75 + index * itemH;
+            const conf = gameDiffConf[key];
+            const label = conf.label || conf.lebel || key;
+
+            // 选中高亮状态
+            if (key === gameModel.currentDifficulty) {
+                this.ctx.fillStyle = '#EAEAEA';
+                this.ctx.fillRect(modalX + 15, itemY - 22, modalW - 30, 44);
+                this.drawSketchyBox(this.ctx, modalX + 15, itemY - 22, modalW - 30, 44);
+            }
+
+            this.ctx.fillStyle = INK_COLOR;
+            this.ctx.font = `bold ${Math.floor(this.width * 0.045)}px ${safeFont}`;
+            this.ctx.fillText(label, cx, itemY);
+            
+            this.hitboxes.diffOptions.push({ key: key, x: modalX + 15, y: itemY - 22, w: modalW - 30, h: 44 });
+        });
+
+        // 弹窗点击遮罩（点外部关闭）
+        this.hitboxes.diffModalBg = { x: 0, y: 0, w: this.width, h: this.height, exclude: {x: modalX, y: modalY, w: modalW, h: modalH} };
+    }
+
     this.texture.needsUpdate = true;
   }
 
@@ -155,10 +256,32 @@ export default class StartPage {
       const pad = 15;
       const hit = (b) => cX >= b.x-pad && cX <= b.x+b.w+pad && cY >= b.y-pad && cY <= b.y+b.h+pad;
 
+      // ✨ 如果弹窗打开，优先劫持弹窗内部的操作
+      if (this.isShowingDiffModal) {
+          // 点击某个难度选项
+          if (this.hitboxes.diffOptions) {
+              for (let i = 0; i < this.hitboxes.diffOptions.length; i++) {
+                  if (hit(this.hitboxes.diffOptions[i])) {
+                      gameModel.setDifficulty(this.hitboxes.diffOptions[i].key); // 保存新难度
+                      this.isShowingDiffModal = false;
+                      this.draw();
+                      return;
+                  }
+              }
+          }
+          // 点击弹窗外部遮罩关闭
+          const ex = this.hitboxes.diffModalBg.exclude;
+          if (cX < ex.x || cX > ex.x + ex.w || cY < ex.y || cY > ex.y + ex.h) {
+              this.isShowingDiffModal = false;
+              this.draw();
+          }
+          return; // 拦截底层按钮点击
+      }
+
+      // ✨ 主页面按钮操作
+      if (hit(this.hitboxes.diffBtn)) { this.isShowingDiffModal = true; this.draw(); return; }
       if (hit(this.hitboxes.play)) { if (this.callbacks?.gameStart) this.callbacks.gameStart(); return; }
       if (hit(this.hitboxes.store)) { if (this.callbacks?.showStore) this.callbacks.showStore(); return; }
-      
-      // ✨ 修复：不再弹出 toast，直接触发回调打开排行榜
       if (hit(this.hitboxes.rank)) { if (this.callbacks?.showRank) this.callbacks.showRank(); return; }
     }
     if (typeof wx !== 'undefined') wx.onTouchEnd(handleTouch);

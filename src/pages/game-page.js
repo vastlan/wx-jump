@@ -9,11 +9,13 @@ import audioManager from '../utils/audio-manager'
 import scoreText from '../objects/score-text'
 import wave from '../objects/wave'
 import blockConf from '../../confs/block-conf'
-import gameDiffConf from '../../confs/game-diff-conf'
 import scoreText3d from '../objects/score-text-3d'
 import { CustomAnimation } from '../../libs/animation' 
 import particle from '../objects/particle' 
 import reviveFree from '../components/revive-free'
+
+// ✨ 引入总难度配置库
+import gameDiffConf from '../../confs/game-diff-conf'
 
 const safeVibrate = (type) => {
   try {
@@ -40,15 +42,13 @@ export default class GamePage {
     this.standingBlock = null
     this.isFeverMode = false
     this.feverJumpsLeft = 0
+    
+    // 初始化时挂载默认难度
+    this.diffConf = gameDiffConf[gameModel.currentDifficulty] || gameDiffConf.defaultDiff;
 
-    // ==========================================
-    // 🛠️ 【上帝控制台】：所有难度因子与节奏控制
-    // ==========================================
-    this.diffConf = gameDiffConf.challengeDiff
-
-    // 追踪玩家动态表现与压力累积
     this.dynamicDifficulty = 0; 
-    this.accumulatedTension = 0; // 核心：当前的压力槽
+    this.accumulatedTension = 0; 
+    this.consecutiveHardJumps = 0; 
 
     this.renderBound = this.render.bind(this)
   }
@@ -93,10 +93,14 @@ export default class GamePage {
         audioManager.stop('scale_loop') 
     }
 
+    // ✨ 核心关联：每次新开一局游戏，立即读取当前选中的难度参数，即时生效！
+    this.diffConf = gameDiffConf[gameModel.currentDifficulty] || gameDiffConf.defaultDiff;
+
     gameModel.resetScore() 
     this.stepCount = 0 
     this.dynamicDifficulty = 0; 
-    this.accumulatedTension = 0; // ✨ 重置压力槽
+    this.accumulatedTension = 0; 
+    this.consecutiveHardJumps = 0;
     this.isSliding = false
     this.activeCollapsingBlock = null
     this.lastVibrateTime = 0
@@ -149,7 +153,8 @@ export default class GamePage {
     this.isFeverMode = false;
     
     this.dynamicDifficulty = Math.max(0, this.dynamicDifficulty - 0.25);
-    this.accumulatedTension = 0; // ✨ 复活后清空压力槽
+    this.accumulatedTension = 0; 
+    this.consecutiveHardJumps = 0;
 
     if (this.standingBlock) {
         this.standingBlock.hasCollapsed = false;
@@ -402,7 +407,6 @@ export default class GamePage {
 
     const baseScore = isPerfect ? (Math.random() > 0.5 ? 2 : 3) : 1; 
     
-    // nextBlock.difficultyScore 包含了 (进度P + 是否困难 + 陷阱惩罚跨度)，能精准反映格子真正的难度
     const blockDiff = nextBlock.difficultyScore || 0;
     const diffMultiplier = 1.0 + (blockDiff * 1.5); 
     
@@ -567,60 +571,52 @@ export default class GamePage {
   }
 
   // ==========================================
-  // ✨ 动态压力槽生成引擎 (真正的打一巴掌给个甜枣)
+  // ✨ 上帝级概率动态引擎生成
   // ==========================================
   generateNextBlock(isFeverSpawn = false) {
     const lastBlock = this.blocks[this.blocks.length - 1];
   
-    // 1. 计算游戏整体进程 P (0.0 ~ 1.0)
     const stepsPastSafe = Math.max(0, this.stepCount - this.diffConf.safeSteps);
     const P = Math.min(1.0, stepsPastSafe / this.diffConf.peakSteps);
     
-    // ✨ 2. 检查玩家是否已经“压力爆表”！
     const triggerPity = this.accumulatedTension >= this.diffConf.tensionThreshold;
     
-    // 3. 抽卡：这个格子是常规简单，还是恶心困难？
     let isHardBlock = false;
     if (!triggerPity && this.stepCount > this.diffConf.safeSteps && !isFeverSpawn) {
         const currentHardProb = this.diffConf.minHardProb + P * (this.diffConf.maxHardProb - this.diffConf.minHardProb);
         isHardBlock = Math.random() < currentHardProb;
     }
 
-    // 4. 尺寸与间距的对抗分配
     let nextWidth, gap;
     let isNeat, isMixed;
 
     if (triggerPity) {
-        // 🎁 甜枣时刻：压力释放！绝对近距离，绝对大方块，绝对画得规整！
         nextWidth = this.diffConf.pityWidthMin + Math.random() * (this.diffConf.widthMax - this.diffConf.pityWidthMin);
         gap = this.diffConf.gapBase + Math.random() * (this.diffConf.pityGapMax - this.diffConf.gapBase);
         isNeat = true;
         isMixed = false;
         
-        this.accumulatedTension = 0; // ✨ 玩家吃下甜枣，压力槽瞬间清空！
+        this.accumulatedTension = 0; 
         
     } else if (isHardBlock) {
-        // 😈 困难时刻：随着 P 增加，越变越窄，越跳越远
         nextWidth = (this.diffConf.widthMax - 4) - P * (this.diffConf.widthMax - 4 - this.diffConf.widthMin);
         nextWidth += (Math.random() * 2 - 1); 
         
         gap = (this.diffConf.gapBase + 3) + P * (this.diffConf.gapExtraMax - 3);
         gap += (Math.random() * 4 - 2); 
 
-        isNeat = Math.random() < 0.2; // 多数是涂鸦乱画
+        isNeat = Math.random() < 0.2; 
         isMixed = Math.random() < 0.3;
     } else {
-        // 😌 普通时刻：较宽，较近的过渡格子
         nextWidth = this.diffConf.widthMax - P * 3; 
         nextWidth += (Math.random() * 2 - 1); 
         gap = this.diffConf.gapBase + P * 5; 
         gap += (Math.random() * 2 - 1);
         
-        isNeat = Math.random() < 0.7; // 多数画得规整
+        isNeat = Math.random() < 0.7; 
         isMixed = Math.random() < 0.3;
     }
 
-    // 严控极值
     nextWidth = Math.max(this.diffConf.widthMin, Math.min(this.diffConf.widthMax + 2, nextWidth));
     gap = Math.max(1.0, Math.min(this.diffConf.gapBase + this.diffConf.gapExtraMax, gap));
 
@@ -647,7 +643,6 @@ export default class GamePage {
     newBlock.baseX = newX;
     newBlock.baseZ = newZ;
     
-    // 5. 陷阱分发 (甜枣时刻绝对不给陷阱)
     let isMoving = false, isIce = false, isCollapsing = false, isMirage = false, spawnFever = false;
     let appliedTrapsCount = 0;
 
@@ -689,18 +684,13 @@ export default class GamePage {
         spawnFever = true;
     }
 
-    // ✨ 计算本格子的真实难度值 (用于计分和压力累加)
-    const gapPenalty = Math.max(0, (gap - 8) / 10); // 跨度超过8开始产生极强压力
+    const gapPenalty = Math.max(0, (gap - 8) / 10); 
     newBlock.difficultyScore = P * 1.0 + (isHardBlock ? 1.5 : 0) + (appliedTrapsCount * 0.8) + gapPenalty;
 
-    // ✨ 如果不是甜枣块，就将这个格子的难度值“注入”玩家的压力槽！
     if (!triggerPity) {
         this.accumulatedTension += newBlock.difficultyScore;
     }
 
-    // ==========================================
-    // 渲染特效果 (逻辑不变)
-    // ==========================================
     if (spawnFever) {
         newBlock.hasFeverItem = true;
         const orbGeom = new THREE.SphereGeometry(1.5, 8, 8); 

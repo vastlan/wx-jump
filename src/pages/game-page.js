@@ -9,6 +9,7 @@ import audioManager from '../utils/audio-manager'
 import scoreText from '../objects/score-text'
 import wave from '../objects/wave'
 import blockConf from '../../confs/block-conf'
+import gameDiffConf from '../../confs/game-diff-conf'
 import scoreText3d from '../objects/score-text-3d'
 import { CustomAnimation } from '../../libs/animation' 
 import particle from '../objects/particle' 
@@ -39,6 +40,15 @@ export default class GamePage {
     this.standingBlock = null
     this.isFeverMode = false
     this.feverJumpsLeft = 0
+
+    // ==========================================
+    // 🛠️ 【上帝控制台】：所有难度因子与节奏控制
+    // ==========================================
+    this.diffConf = gameDiffConf.challengeDiff
+
+    // 追踪玩家动态表现与压力累积
+    this.dynamicDifficulty = 0; 
+    this.accumulatedTension = 0; // 核心：当前的压力槽
 
     this.renderBound = this.render.bind(this)
   }
@@ -85,6 +95,8 @@ export default class GamePage {
 
     gameModel.resetScore() 
     this.stepCount = 0 
+    this.dynamicDifficulty = 0; 
+    this.accumulatedTension = 0; // ✨ 重置压力槽
     this.isSliding = false
     this.activeCollapsingBlock = null
     this.lastVibrateTime = 0
@@ -102,16 +114,17 @@ export default class GamePage {
     })
     this.blocks = []
     
-    // 背景设为纯净白纸
     this.scene.background.setTargetColor('#F5F2E9')
 
-    const initWidth = 18
+    const initWidth = this.diffConf.widthMax;
     const initDistance = initWidth + 2 + Math.random() * 2
     const cylinderBlock = new Cuboid(-15, 0, 0, 'default', initWidth)
     const cuboidBlock = new Cylinder(-15 + initDistance, 0, 0, 'default', initWidth)
     
     cylinderBlock.baseX = -15; cylinderBlock.baseZ = 0;
     cuboidBlock.baseX = -15 + initDistance; cuboidBlock.baseZ = 0;
+    cylinderBlock.difficultyScore = 0;
+    cuboidBlock.difficultyScore = 0;
 
     this.scene.instance.add(cylinderBlock.instance)
     this.scene.instance.add(cuboidBlock.instance)
@@ -134,6 +147,9 @@ export default class GamePage {
     this.isGameOver = false;
     this.isSliding = false;
     this.isFeverMode = false;
+    
+    this.dynamicDifficulty = Math.max(0, this.dynamicDifficulty - 0.25);
+    this.accumulatedTension = 0; // ✨ 复活后清空压力槽
 
     if (this.standingBlock) {
         this.standingBlock.hasCollapsed = false;
@@ -371,13 +387,6 @@ export default class GamePage {
   }
 
   handleHitNext(currentBlock, nextBlock, distanceToNextCenter, CENTER_RADIUS, wasSliding) {
-    const blockDistance = Math.sqrt(
-      Math.pow((nextBlock.baseX) - (currentBlock.baseX), 2) + 
-      Math.pow((nextBlock.baseZ) - (currentBlock.baseZ), 2)
-    )
-    let baseScore = Math.max(1, Math.floor(blockDistance / 5)) 
-    let finalScore = baseScore
-
     let isPerfect = (!wasSliding && distanceToNextCenter < CENTER_RADIUS) || this.isFeverMode;
     let isBlindSnipe = false;
 
@@ -388,10 +397,45 @@ export default class GamePage {
 
     if (nextBlock.isMirage && isPerfect && !this.isFeverMode) {
         const currentOpacity = Math.pow(Math.sin((Date.now() / 1000) * (Math.PI / 10) + nextBlock.mirageOffset), 2);
-        if (currentOpacity < 0.20) { 
-            isBlindSnipe = true;
-        }
+        if (currentOpacity < 0.20) isBlindSnipe = true;
     }
+
+    const baseScore = isPerfect ? (Math.random() > 0.5 ? 2 : 3) : 1; 
+    
+    // nextBlock.difficultyScore 包含了 (进度P + 是否困难 + 陷阱惩罚跨度)，能精准反映格子真正的难度
+    const blockDiff = nextBlock.difficultyScore || 0;
+    const diffMultiplier = 1.0 + (blockDiff * 1.5); 
+    
+    let skillMultiplier = 1.0;
+    
+    if (isBlindSnipe) {
+        skillMultiplier = 3.5;
+        gameModel.combo += 1;
+        this.dynamicDifficulty = Math.min(1, this.dynamicDifficulty + 0.05);
+        const comboName = `combo${Math.min(gameModel.combo, 8)}`;
+        audioManager.play(comboName);
+        wave.createWave(this.scene.instance, nextBlock.instance.position);
+        setTimeout(() => wave.createWave(this.scene.instance, nextBlock.instance.position), 150);
+        safeVibrate('heavy');
+    } else if (isPerfect) {
+        gameModel.combo += 1;
+        skillMultiplier = 1.0 + (gameModel.combo * 0.25); 
+        this.dynamicDifficulty = Math.min(1, this.dynamicDifficulty + 0.02);
+        const comboName = `combo${Math.min(gameModel.combo, 8)}`;
+        audioManager.play(comboName);
+        wave.createWave(this.scene.instance, nextBlock.instance.position);
+        safeVibrate('medium');
+    } else {
+        gameModel.combo = 0;
+        this.dynamicDifficulty = Math.max(0, this.dynamicDifficulty - 0.03);
+        audioManager.play('success');
+        safeVibrate('light');
+    }
+    
+    if (this.isFeverMode) skillMultiplier = 2.0;
+
+    let finalScore = Math.floor(baseScore * diffMultiplier * skillMultiplier);
+    if (isNaN(finalScore) || finalScore <= 0) finalScore = 1;
 
     if (nextBlock.isMirage) {
         nextBlock.isMirage = false; 
@@ -436,31 +480,7 @@ export default class GamePage {
         }
     }
 
-    if (isBlindSnipe) {
-      finalScore = baseScore * 5 
-      gameModel.combo += 1
-      const comboName = `combo${Math.min(gameModel.combo, 8)}`
-      audioManager.play(comboName) 
-      wave.createWave(this.scene.instance, nextBlock.instance.position)
-      setTimeout(() => wave.createWave(this.scene.instance, nextBlock.instance.position), 150)
-      safeVibrate('heavy') 
-    } else if (isPerfect) {
-      finalScore = baseScore * 2
-      gameModel.combo += 1
-      const comboName = `combo${Math.min(gameModel.combo, 8)}`
-      audioManager.play(comboName)
-      wave.createWave(this.scene.instance, nextBlock.instance.position)
-      safeVibrate('medium') 
-    } else {
-      gameModel.combo = 0
-      audioManager.play('success') 
-    }
-
-    if (nextBlock.isCollapsing && !isBlindSnipe && !this.isFeverMode) {
-      safeVibrate('heavy'); 
-    } else if (!isPerfect && !isBlindSnipe) {
-      safeVibrate('light'); 
-    }
+    if (nextBlock.isCollapsing && !isBlindSnipe && !this.isFeverMode) safeVibrate('heavy'); 
 
     gameModel.addScore(finalScore)
     scoreText3d.showScore(this.scene.instance, finalScore, nextBlock.instance.position)
@@ -546,168 +566,199 @@ export default class GamePage {
     if (this.bonusTimer) { clearTimeout(this.bonusTimer); this.bonusTimer = null }
   }
 
+  // ==========================================
+  // ✨ 动态压力槽生成引擎 (真正的打一巴掌给个甜枣)
+  // ==========================================
   generateNextBlock(isFeverSpawn = false) {
-    const lastBlock = this.blocks[this.blocks.length - 1]
+    const lastBlock = this.blocks[this.blocks.length - 1];
   
-    let t
-    if (this.stepCount < 10) {
-      t = this.stepCount / 10   
+    // 1. 计算游戏整体进程 P (0.0 ~ 1.0)
+    const stepsPastSafe = Math.max(0, this.stepCount - this.diffConf.safeSteps);
+    const P = Math.min(1.0, stepsPastSafe / this.diffConf.peakSteps);
+    
+    // ✨ 2. 检查玩家是否已经“压力爆表”！
+    const triggerPity = this.accumulatedTension >= this.diffConf.tensionThreshold;
+    
+    // 3. 抽卡：这个格子是常规简单，还是恶心困难？
+    let isHardBlock = false;
+    if (!triggerPity && this.stepCount > this.diffConf.safeSteps && !isFeverSpawn) {
+        const currentHardProb = this.diffConf.minHardProb + P * (this.diffConf.maxHardProb - this.diffConf.minHardProb);
+        isHardBlock = Math.random() < currentHardProb;
+    }
+
+    // 4. 尺寸与间距的对抗分配
+    let nextWidth, gap;
+    let isNeat, isMixed;
+
+    if (triggerPity) {
+        // 🎁 甜枣时刻：压力释放！绝对近距离，绝对大方块，绝对画得规整！
+        nextWidth = this.diffConf.pityWidthMin + Math.random() * (this.diffConf.widthMax - this.diffConf.pityWidthMin);
+        gap = this.diffConf.gapBase + Math.random() * (this.diffConf.pityGapMax - this.diffConf.gapBase);
+        isNeat = true;
+        isMixed = false;
+        
+        this.accumulatedTension = 0; // ✨ 玩家吃下甜枣，压力槽瞬间清空！
+        
+    } else if (isHardBlock) {
+        // 😈 困难时刻：随着 P 增加，越变越窄，越跳越远
+        nextWidth = (this.diffConf.widthMax - 4) - P * (this.diffConf.widthMax - 4 - this.diffConf.widthMin);
+        nextWidth += (Math.random() * 2 - 1); 
+        
+        gap = (this.diffConf.gapBase + 3) + P * (this.diffConf.gapExtraMax - 3);
+        gap += (Math.random() * 4 - 2); 
+
+        isNeat = Math.random() < 0.2; // 多数是涂鸦乱画
+        isMixed = Math.random() < 0.3;
     } else {
-      t = Math.min((this.stepCount - 10) / 50 + 1, 2)
+        // 😌 普通时刻：较宽，较近的过渡格子
+        nextWidth = this.diffConf.widthMax - P * 3; 
+        nextWidth += (Math.random() * 2 - 1); 
+        gap = this.diffConf.gapBase + P * 5; 
+        gap += (Math.random() * 2 - 1);
+        
+        isNeat = Math.random() < 0.7; // 多数画得规整
+        isMixed = Math.random() < 0.3;
     }
-  
-    const minWidth = 6 - t * 3      
-    const maxWidth = 20 - t * 10    
-    const nextWidth = minWidth + Math.random() * (maxWidth - minWidth)
-  
-    const baseMinDistance = Math.max((lastBlock.width + nextWidth) / 2 + 1.5, 8)
-    const maxDistance = 12 + t * 60   
-    let distance = baseMinDistance + Math.random() * (maxDistance - baseMinDistance)
-  
-    const rewardChance = 0.15 + (t * 0.1)  
-    if (this.stepCount > 10 && Math.random() < rewardChance) {
-      distance *= 0.6
-      nextWidth * 1.3
-    }
-  
-    const targetY = 0 
-    const isXDirection = Math.random() > 0.5 
+
+    // 严控极值
+    nextWidth = Math.max(this.diffConf.widthMin, Math.min(this.diffConf.widthMax + 2, nextWidth));
+    gap = Math.max(1.0, Math.min(this.diffConf.gapBase + this.diffConf.gapExtraMax, gap));
+
+    const distance = (lastBlock.width + nextWidth) / 2 + gap;
+    const targetY = 0;
+    const isXDirection = Math.random() > 0.5;
     
     let newX = lastBlock.baseX !== undefined ? lastBlock.baseX : lastBlock.instance.position.x;
     let newZ = lastBlock.baseZ !== undefined ? lastBlock.baseZ : lastBlock.instance.position.z;
   
     if (isXDirection) { 
-      newX += distance
-      this.bottle.direction = 'x' 
+      newX += distance; this.bottle.direction = 'x';
     } else { 
-      newZ -= distance
-      this.bottle.direction = 'z' 
+      newZ -= distance; this.bottle.direction = 'z';
     }
   
-    const isCuboid = Math.random() > 0.5 
-    let newBlock
-  
-    // ✨ 注入手绘网格参数，自动在狂草和规整之间随机摇摆
-    const isNeat = Math.random() < 0.33;
-    const isMixed = Math.random() < 0.3;
-
+    const isCuboid = Math.random() > 0.5;
+    let newBlock;
     if (isCuboid) {
       newBlock = new Cuboid(newX, targetY, newZ, 'default', nextWidth, { isMixed, isNeat })
     } else {
       newBlock = new Cylinder(newX, targetY, newZ, 'default', nextWidth, { allowShapes: true, isMixed, isNeat })
     }
-
     newBlock.baseX = newX;
     newBlock.baseZ = newZ;
     
-    let isMoving = false;
-    let isIce = false;
-    let isCollapsing = false;
-    let isMirage = false;
-    let spawnFever = false;
+    // 5. 陷阱分发 (甜枣时刻绝对不给陷阱)
+    let isMoving = false, isIce = false, isCollapsing = false, isMirage = false, spawnFever = false;
+    let appliedTrapsCount = 0;
 
-    if (isFeverSpawn) {
+    if (isHardBlock && !isFeverSpawn && !triggerPity) {
+        const maxAllowed = Math.floor(this.diffConf.maxTrapsEarly + P * (this.diffConf.maxTrapsLate - this.diffConf.maxTrapsEarly + 0.99));
+        const targetTraps = 1 + Math.floor(Math.random() * maxAllowed);
         
-    } else if (gameModel.combo >= 3 && !this.isFeverMode) {
-        isMoving = true;
+        let trapPool = [
+            { type: 'moving', weight: this.diffConf.weightMoving },
+            { type: 'ice', weight: this.diffConf.weightIce },
+            { type: 'collapse', weight: this.diffConf.weightCollapse },
+            { type: 'mirage', weight: this.diffConf.weightMirage }
+        ];
+
+        for (let i = 0; i < targetTraps; i++) {
+            if (trapPool.length === 0) break;
+            const totalWeight = trapPool.reduce((sum, item) => sum + item.weight, 0);
+            let roll = Math.random() * totalWeight;
+            let selectedIdx = -1;
+            
+            for (let j = 0; j < trapPool.length; j++) {
+                roll -= trapPool[j].weight;
+                if (roll <= 0) { selectedIdx = j; break; }
+            }
+            
+            if (selectedIdx !== -1) {
+                const selectedType = trapPool[selectedIdx].type;
+                if (selectedType === 'moving') isMoving = true;
+                if (selectedType === 'ice') isIce = true;
+                if (selectedType === 'collapse') { isCollapsing = true; trapPool = trapPool.filter(p => p.type !== 'mirage'); }
+                if (selectedType === 'mirage') { isMirage = true; trapPool = trapPool.filter(p => p.type !== 'collapse'); }
+                trapPool.splice(selectedIdx, 1);
+                appliedTrapsCount++;
+            }
+        }
+    }
+
+    if (!this.isFeverMode && !isFeverSpawn && !triggerPity && Math.random() < (isHardBlock ? 0.05 + P*0.1 : 0.02)) {
+        spawnFever = true;
+    }
+
+    // ✨ 计算本格子的真实难度值 (用于计分和压力累加)
+    const gapPenalty = Math.max(0, (gap - 8) / 10); // 跨度超过8开始产生极强压力
+    newBlock.difficultyScore = P * 1.0 + (isHardBlock ? 1.5 : 0) + (appliedTrapsCount * 0.8) + gapPenalty;
+
+    // ✨ 如果不是甜枣块，就将这个格子的难度值“注入”玩家的压力槽！
+    if (!triggerPity) {
+        this.accumulatedTension += newBlock.difficultyScore;
+    }
+
+    // ==========================================
+    // 渲染特效果 (逻辑不变)
+    // ==========================================
+    if (spawnFever) {
+        newBlock.hasFeverItem = true;
+        const orbGeom = new THREE.SphereGeometry(1.5, 8, 8); 
+        if (!isNeat) {
+            if (orbGeom.vertices) {
+                orbGeom.vertices.forEach(v => { v.x += (Math.random() - 0.5) * 1.5; v.y += (Math.random() - 0.5) * 1.5; v.z += (Math.random() - 0.5) * 1.5; });
+                orbGeom.computeVertexNormals();
+            } else if (orbGeom.attributes && orbGeom.attributes.position) {
+                const pos = orbGeom.attributes.position;
+                for (let i = 0; i < pos.count; i++) { pos.setX(i, pos.getX(i) + (Math.random() - 0.5) * 1.5); pos.setY(i, pos.getY(i) + (Math.random() - 0.5) * 1.5); pos.setZ(i, pos.getZ(i) + (Math.random() - 0.5) * 1.5); }
+                orbGeom.computeVertexNormals();
+            }
+        }
+        const orbMat = new THREE.MeshBasicMaterial({ color: 0x1A1A1A, wireframe: true }); 
+        const orb = new THREE.Mesh(orbGeom, orbMat);
+        orb.position.y = blockConf.height / 2 + 3;
+        newBlock.feverOrb = orb;
+        newBlock.instance.add(orb);
+    }
+
+    if (isMoving) {
         newBlock.isMoving = true;
-        newBlock.moveAxis = isXDirection ? 'z' : 'x';
-        newBlock.moveSpeed = 0.001; 
-        newBlock.moveRange = 4;
-        newBlock.moveOffset = 0;
-        // ✨ 已移除了“连击”文字！
-    } else {
-        const difficultyScale = Math.min((this.stepCount - 10) / 100, 0.4); 
-        
-        if (!this.isFeverMode && Math.random() < 0.05) {
-            spawnFever = true;
-        }
+        newBlock.moveAxis = isXDirection ? 'z' : 'x'; 
+        newBlock.moveSpeed = 0.001 * (1.0 + P * 3.5); 
+        newBlock.moveRange = 4 + (P * 6); 
+        newBlock.moveOffset = Math.random() * Math.PI * 2; 
+    }
 
-        if (this.stepCount > 8)  isIce = Math.random() < (0.25 + difficultyScale * 0.5); 
-        if (this.stepCount > 15) isMoving = Math.random() < (0.20 + difficultyScale * 0.5);    
-        if (this.stepCount > 20) isCollapsing = Math.random() < (0.15 + difficultyScale * 0.4); 
-        if (this.stepCount > 25) isMirage = Math.random() < (0.15 + difficultyScale * 0.4); 
+    if (isCollapsing) {
+        newBlock.isCollapsing = true;
+        newBlock.collapseTimeLeft = 8 - (P * 5); 
+        newBlock.triggeredCollapse = false;
+        newBlock.hasCollapsed = false;
+        newBlock.shakeOffsetX = 0;
+        newBlock.shakeOffsetZ = 0;
+    }
 
-        if (spawnFever) {
-          newBlock.hasFeverItem = true;
-          // 根据宿主方块的规整度决定光球的扭曲度
-          const orbGeom = new THREE.SphereGeometry(1.5, 8, 8); 
-          if (!isNeat) {
-              if (orbGeom.vertices) {
-                  orbGeom.vertices.forEach(v => {
-                      v.x += (Math.random() - 0.5) * 1.5;
-                      v.y += (Math.random() - 0.5) * 1.5;
-                      v.z += (Math.random() - 0.5) * 1.5;
-                  });
-                  orbGeom.computeVertexNormals();
-              } else if (orbGeom.attributes && orbGeom.attributes.position) {
-                  const pos = orbGeom.attributes.position;
-                  for (let i = 0; i < pos.count; i++) {
-                      pos.setX(i, pos.getX(i) + (Math.random() - 0.5) * 1.5);
-                      pos.setY(i, pos.getY(i) + (Math.random() - 0.5) * 1.5);
-                      pos.setZ(i, pos.getZ(i) + (Math.random() - 0.5) * 1.5);
-                  }
-                  orbGeom.computeVertexNormals();
-              }
-          }
-          
-          const orbMat = new THREE.MeshBasicMaterial({ color: 0x1A1A1A, wireframe: true }); 
-          const orb = new THREE.Mesh(orbGeom, orbMat);
-          orb.position.y = blockConf.height / 2 + 3;
-          newBlock.feverOrb = orb;
-          newBlock.instance.add(orb);
-      }
-
-        if (isMoving) {
-            newBlock.isMoving = true;
-            newBlock.moveAxis = isXDirection ? 'z' : 'x'; 
-            const speedMultiplier = Math.min(1 + (this.stepCount - 8) / 40, 3.0); 
-            newBlock.moveSpeed = (0.0015 + Math.random() * 0.001) * speedMultiplier;
-            newBlock.moveRange = 5 + Math.random() * 4;
-            newBlock.moveOffset = Math.random() * Math.PI * 2; 
-        }
-
-        if (isCollapsing) {
-            newBlock.isCollapsing = true;
-            newBlock.collapseTimeLeft = 10; 
-            newBlock.triggeredCollapse = false;
-            newBlock.hasCollapsed = false;
-            newBlock.shakeOffsetX = 0;
-            newBlock.shakeOffsetZ = 0;
-        }
-
-        if (isIce) {
-            newBlock.isIce = true;
-            // ✨ 只给冰块设置文字
-            newBlock.setSketchText('冰块');
-        }
-        
-        if (isMirage) {
-            newBlock.isMirage = true;
-            newBlock.mirageOffset = Math.random() * Math.PI * 2; 
-            newBlock.mirageMaterials = []; 
-            newBlock.instance.traverse(c => {
-                if ((c.isMesh || c.isLine) && c.material) {
-                    if (Array.isArray(c.material)) {
-                        const newMats = [];
-                        c.material.forEach(m => {
-                            const newM = m.clone();
-                            newM.transparent = true;
-                            newBlock.mirageMaterials.push(newM);
-                            newMats.push(newM);
-                            m.dispose();
-                        });
-                        c.material = newMats;
-                    } else {
-                        const newMat = c.material.clone();
-                        newMat.transparent = true;
-                        c.material.dispose(); 
-                        c.material = newMat;
-                        newBlock.mirageMaterials.push(newMat);
-                    }
+    if (isIce) {
+        newBlock.isIce = true;
+        newBlock.setSketchText('冰 块');
+    }
+    
+    if (isMirage) {
+        newBlock.isMirage = true;
+        newBlock.mirageSpeed = 1.0 + P * 2.5; 
+        newBlock.mirageOffset = Math.random() * Math.PI * 2; 
+        newBlock.mirageMaterials = []; 
+        newBlock.instance.traverse(c => {
+            if ((c.isMesh || c.isLine) && c.material) {
+                if (Array.isArray(c.material)) {
+                    const newMats = [];
+                    c.material.forEach(m => { const newM = m.clone(); newM.transparent = true; newBlock.mirageMaterials.push(newM); newMats.push(newM); m.dispose(); });
+                    c.material = newMats;
+                } else {
+                    const newMat = c.material.clone(); newMat.transparent = true; c.material.dispose(); c.material = newMat; newBlock.mirageMaterials.push(newMat);
                 }
-            });
-        }
+            }
+        });
     }
   
     newBlock.instance.position.y = targetY + 15
@@ -862,7 +913,8 @@ export default class GamePage {
       }
 
       if (block.isMirage && !block.hasCollapsed && block.mirageMaterials) {
-          const opacity = Math.pow(Math.sin((now / 1000) * (Math.PI / 10) + block.mirageOffset), 2);
+          const speed = block.mirageSpeed || 1.0;
+          const opacity = Math.pow(Math.sin((now / 1000) * (Math.PI / 10) * speed + block.mirageOffset), 2);
           for (let i = 0; i < block.mirageMaterials.length; i++) {
               block.mirageMaterials[i].opacity = opacity;
           }

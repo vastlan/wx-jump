@@ -20,7 +20,7 @@ class GameController {
       showStore: () => this.gameModel.setStage('store-page'),
       showRank: () => this.gameModel.setStage('rank-page'),
       
-      // ✨ 新增：触发复活，切换路由到专用的复活状态
+      // ✨ 新增：触发，切换路由到专用的复活状态
       gameRevive: () => this.gameModel.setStage('game-revive') 
     }
 
@@ -53,7 +53,7 @@ class GameController {
         case 'game-over-page': this.gameView.showGameOverPage(); break;
         case 'store-page': this.gameView.showStorePage(); break;
         case 'rank-page': this.gameView.showRankPage(); break; 
-        case 'game-revive': this.gameView.reviveGamePage(); break; // ✨ 处理复活显示
+        case 'game-revive': this.gameView.reviveGamePage(); break; // ✨ 处理显示
         default: break;
       }
     })

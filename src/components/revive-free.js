@@ -19,13 +19,13 @@ class ReviveFree {
             ctx.font = `bold ${Math.floor(w * 0.08)}px ${safeFont}`;
             ctx.textAlign = 'center'; 
             ctx.textBaseline = 'middle';
-            ctx.fillText(`原地复活 (${this.currentRevives}/5)`, x + w / 2, y + h / 2);
+            ctx.fillText(`原地重来 (${this.currentRevives}/5)`, x + w / 2, y + h / 2);
         } else {
             ctx.fillStyle = '#AAAAAA'; 
             ctx.font = `bold ${Math.floor(w * 0.08)}px ${safeFont}`;
             ctx.textAlign = 'center'; 
             ctx.textBaseline = 'middle';
-            ctx.fillText('复活已用尽', x + w / 2, y + h / 2);
+            ctx.fillText('已用尽', x + w / 2, y + h / 2);
             
             // 充满嘲讽意味的删除线
             ctx.beginPath();

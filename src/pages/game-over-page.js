@@ -170,13 +170,13 @@ export default class GameOverPage {
     this.ctx.fillStyle = INK_COLOR; 
     this.ctx.font = `900 ${Math.floor(this.width * 0.048)}px ${safeFont}`;
     this.ctx.textAlign = 'center';
-    this.ctx.fillText('薅薅分享', cx, shareY + shareBtnHeight * 0.40); 
+    this.ctx.fillText('薅薅炫耀', cx, shareY + shareBtnHeight * 0.40); 
 
     const descY = shareY + shareBtnHeight * 0.76;
     this.ctx.font = `normal ${Math.max(12, Math.floor(this.width * 0.032))}px ${safeFont}`;
     this.ctx.fillStyle = '#555555';
     
-    const descText = this.currentShareDesc || "和好友分享薅羊毛好事...";
+    const descText = this.currentShareDesc || "和好友炫耀";
     const clipPad = 15;
     
     if (this.marqueeX === null) {
@@ -260,13 +260,13 @@ export default class GameOverPage {
           return; 
       }
 
-      // ✨ 修复违规：彻底去除 imageUrl 控制，微信将默认无警报地拉起合规分享面板
+      // ✨ 修复违规：彻底去除 imageUrl 控制，微信将默认无警报地拉起合规炫耀面板
       if (hit(this.hitboxes.share)) { 
           const shareText = this.getRandomShareText();
           if (typeof wx !== 'undefined' && wx.shareAppMessage) {
               wx.shareAppMessage({ title: shareText }); 
           } else {
-              console.log("【PC端触发分享】:", shareText);
+              console.log("【PC端触发炫耀】:", shareText);
           }
           return; 
       }

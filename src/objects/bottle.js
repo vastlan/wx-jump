@@ -295,7 +295,7 @@ class Bottle {
     this.status = 'jump'
     
     let effectivePressTime = Math.max(0, pressTime - PRESS_TIME_THRESHOLD)
-    const JUMP_FACTOR = 0.00102
+    const JUMP_FACTOR = 0.00152
     const totalScalarVelocity = effectivePressTime * JUMP_FACTOR 
 
     this.velocity.vx = (dx / this.distanceToTarget) * totalScalarVelocity

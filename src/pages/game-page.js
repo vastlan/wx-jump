@@ -74,7 +74,7 @@ export default class GamePage {
     this.isGameOver = false
     this.clearBonusTimer() 
     
-    // ✨ 新开一局时，通知免费组件刷新5次复活机会
+    // ✨ 新开一局时，通知免费组件刷新5次机会
     reviveFree.onGameStart();
 
     if (this.chargeAudioTimer) {
@@ -131,7 +131,7 @@ export default class GamePage {
   }
 
   // ==========================================
-  // ✨ 核心修复：复活逻辑，防止死机卡顿
+  // ✨ 核心修复：逻辑，防止死机卡顿
   // ==========================================
   revive() {
     this.isGameOver = false;

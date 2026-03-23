@@ -105,7 +105,7 @@ export default class API {
 
         return [
             `本次积分超越${exceedPct}%玩家，这得好好炫炫`,
-            `本次已积累${currentScore}积分，和好友分享薅羊毛好事`,
+            `本次已积累${currentScore}积分，和好友炫耀好事`,
             `独乐乐不如众乐乐，一起开心跳跃`,
             `战绩不错，快去展示一下你的实力`
         ];

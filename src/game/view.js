@@ -61,7 +61,7 @@ class GameView {
     if (scoreText) scoreText.show() 
   }
 
-  // ✨ 新增：不重置分数，直接在局内复活
+  // ✨ 新增：不重置分数，直接在局内
   reviveGamePage() {
     this.hideAll();
     this.gamePage.revive() // 核心：调用复活而不是 restart
